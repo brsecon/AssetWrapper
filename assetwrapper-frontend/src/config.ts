@@ -2,9 +2,9 @@
 
 // --- Deploy Edilmiş Ana Kontrat Adresleri ---
 // AssetWrapperNFT kontrat adresi
-export const NFT_CONTRACT_ADDRESS = '0x3431C8a0ee84a97923e4b1d2462b58dfd2C1fD3d'; // Kendi adresinle değiştir
+export const NFT_CONTRACT_ADDRESS = '0xb97D899Dea869e5d5a435D8ae0E1C49f1865bc8c'; // Kendi adresinle değiştir
 // AssetWrapperVault kontrat adresi
-export const VAULT_CONTRACT_ADDRESS = '0x2ae292c306205B36e0ac06B3CeBA115A3e98dc5B'; // Kendi adresinle değiştir
+export const VAULT_CONTRACT_ADDRESS = '0xCeA9cd9E0f89C7A4341C677f78269eeB08f9119b'; // Kendi adresinle değiştir
 
 // --- Hedef Ağ ---
 export const TARGET_CHAIN_ID = 84532; // Base Sepolia Chain ID

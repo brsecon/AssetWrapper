@@ -6,6 +6,9 @@ import "dotenv/config"; // .env dosyasındaki değişkenleri yüklemek için imp
 const baseSepoliaRpcUrl = process.env.BASE_SEPOLIA_RPC_URL || ""; // Eğer değişken yoksa boş string ata (TypeScript tip kontrolü için)
 const baseSepoliaPrivateKey = process.env.BASE_SEPOLIA_PRIVATE_KEY;
 
+const baseRpcUrl = process.env.BASE_RPC_URL || "";
+const basePrivateKey = process.env.BASE_PRIVATE_KEY;
+
 const polygonRpcUrl = process.env.POLYGON_RPC_URL || "";
 const polygonPrivateKey = process.env.POLYGON_PRIVATE_KEY;
 
@@ -45,6 +48,13 @@ const config: HardhatUserConfig = {
       // Özel anahtar tanımlıysa dizi içine al, değilse boş dizi ata
       accounts: baseSepoliaPrivateKey !== undefined ? [baseSepoliaPrivateKey] : [],
       chainId: 84532, // Sepolia'nın Chain ID'si
+    },
+
+    base: {
+      url: baseRpcUrl,
+      // Özel anahtar tanımlıysa dizi içine al, değilse boş dizi ata
+      accounts: basePrivateKey!== undefined ? [basePrivateKey] : [],
+      chainId: 8453, // Sepolia'nın Chain ID'si
     },
 
     // Başka ağları da buraya benzer şekilde ekleyebilirsin

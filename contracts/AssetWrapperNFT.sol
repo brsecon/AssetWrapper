@@ -28,7 +28,7 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
     error MaxAssetsExceeded();
 
     // --- Constants ---
-    uint256 public constant WRAPPER_FEE = 0.001 ether;
+    uint256 public constant WRAPPER_FEE = 0.0005 ether;
     uint256 public constant MAX_ASSETS_PER_TX = 50; // Tek işlemde maksimum varlık sayısı
 
     // Simple counter for unique wrapper IDs
