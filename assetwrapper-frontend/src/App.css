@@ -1,42 +1,303 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+/* src/App.css */
+
+/* Temel Uygulama Düzeni Stilleri */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: var(--spacing-xl);
+}
+
+.app-header h1 {
+  margin-bottom: 0;
+}
+
+.app-main {
+  padding: var(--spacing-lg) 0;
+}
+
+.app-footer {
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--border-color);
   text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.9em;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+/* Form Elemanları Stilleri */
+/* ... (Buton, input, select stilleri öncekiyle aynı) ... */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6em 1.2em;
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: var(--transition-base);
+  background-color: var(--color-primary);
+  color: white;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
 }
 
-.card {
-  padding: 2em;
+button:hover {
+  background-color: var(--color-primary-hover);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
-.read-the-docs {
-  color: #888;
+button:focus,
+button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  box-shadow: none;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  display: block;
+  width: 100%;
+  padding: 0.6em 0.8em;
+  font-family: inherit;
+  font-size: 1em;
+  line-height: 1.5;
+  color: var(--color-text);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  transition: var(--transition-base);
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.5);
+}
+
+select {
+  appearance: none;
+  background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%239CA3AF%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.293%207.293a1%201%200%20011.414%200L10%2010.586l3.293-3.293a1%201%200%20111.414%201.414l-4%204a1%201%200%2001-1.414%200l-4-4a1%201%200%20010-1.414z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E');
+  background-repeat: no-repeat;
+  background-position: right 0.7em top 50%;
+  background-size: 1.25em;
+  padding-right: 2.5em;
+}
+
+.form-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.input-group label {
+   margin-bottom: 0;
+   margin-right: var(--spacing-md);
+   flex-shrink: 0;
+}
+
+.input-group input,
+.input-group select {
+  flex-grow: 1;
+}
+
+.input-with-button {
+    display: flex;
+}
+
+.input-with-button input {
+     border-top-right-radius: 0;
+     border-bottom-right-radius: 0;
+     flex-grow: 1;
+}
+.input-with-button button {
+     border-top-left-radius: 0;
+     border-bottom-left-radius: 0;
+}
+
+
+/* Liste Stilleri */
+.asset-list {
+  list-style: none;
+  padding: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: var(--color-bg-secondary);
+  max-height: 300px;
+  min-height: 100px; /* Liste boşken bile yer kaplasın */
+  overflow-y: auto;
+  scrollbar-gutter: stable; /* Kaydırma çubuğu için yer ayır */
+}
+/* ... (Liste içeriği stilleri .asset-list li, .asset-logo vs. aynı) ... */
+.asset-list li {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.asset-list li:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.asset-list img.asset-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  margin-right: var(--spacing-md);
+  flex-shrink: 0;
+  background-color: var(--color-bg);
+}
+
+.asset-list .asset-info {
+  flex-grow: 1;
+  margin-right: var(--spacing-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.asset-list .asset-info .asset-name {
+  font-weight: 500;
+  display: block;
+  color: var(--color-text);
+}
+
+.asset-list .asset-info .asset-details {
+  font-size: 0.9em;
+  color: var(--color-text-secondary);
+  display: block;
+}
+
+.asset-list .asset-actions button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.85em;
+  background-color: transparent;
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+.asset-list .asset-actions button:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--color-error);
+}
+
+
+/* Mesaj Alanı Stilleri (Visibility ile) */
+.message-area {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius);
+  border-width: 1px;
+  border-style: solid;
+  border-color: transparent; /* Boşken border görünmesin */
+  font-size: 0.95em;
+  text-align: left;
+  min-height: var(--min-height-message); /* Minimum yükseklik */
+  visibility: hidden; /* Varsayılan olarak gizli */
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.2s; /* Geçiş efekti */
+}
+
+.message-area.visible { /* Görünür class'ı */
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+/* Renkler için border-color'ı visible olduğunda set et */
+.message-area.success.visible {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.message-area.error.visible {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.message-area.info.visible {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-color: var(--color-info);
+  color: var(--color-info);
+}
+
+/* İçerik stilleri (renkler visible class'ı üzerinden yönetiliyor) */
+.message-area small {
+  display: block;
+}
+.message-area a {
+  font-weight: bold;
+  text-decoration: underline;
+}
+.message-area.success a { color: var(--color-success); }
+.message-area.error a { color: var(--color-error); }
+.message-area.info a { color: var(--color-info); }
+
+
+/* Ayırıcı Çizgi */
+hr.section-divider {
+  margin: var(--spacing-xl) 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Component Spesifik Boşluklar vs. */
+/* ... (Öncekiyle aynı) ... */
+.unwrap-section, .wrap-form-section, .profile-page { }
+.section-title { margin-bottom: var(--spacing-lg); }
+.action-button-group { margin-top: var(--spacing-lg); }
+.balance-info { font-size: 0.9em; color: var(--color-text-secondary); margin-left: var(--spacing-sm); }
+.refresh-button { margin-left: var(--spacing-md); }
+.loading-spinner { margin-left: var(--spacing-sm); display: inline-block; }
+
+/* Profildeki Unwrap Butonu Stili */
+.nft-card-unwrap-button { /* Butona bu class verilmeli */
+    background-color: var(--color-primary);
+    width: 100%;
+}
+.nft-card-unwrap-button:hover {
+    background-color: var(--color-primary-hover);
+}
+.nft-card-unwrap-button:disabled {
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+    cursor: not-allowed;
 }

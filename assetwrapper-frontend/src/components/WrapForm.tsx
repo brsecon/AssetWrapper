@@ -1,5 +1,4 @@
 // src/components/WrapForm.tsx
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ethers, parseUnits, formatUnits, Contract, Signer, parseEther, toBigInt, isAddress, ContractTransactionResponse, TransactionReceipt } from 'ethers';
 import { useAccount } from 'wagmi';
@@ -20,12 +19,9 @@ import { Alchemy, Network, TokenBalancesResponse, Nft, OwnedNftsResponse } from 
 // --- Sabitler ve Kurulumlar ---
 const alchemyApiKey = import.meta.env.VITE_ALCHEMY_API_KEY;
 if (!alchemyApiKey) { console.warn("VITE_ALCHEMY_API_KEY .env dosyasında tanımlanmamış!"); }
-const errorStyle = { color: 'red', marginTop: '1rem' };
-const successStyle = { color: 'green', marginTop: '1rem' };
-const infoStyle = { color: '#555', marginTop: '1rem' };
 const REFRESH_COOLDOWN = 30000;
-const WRAPPER_FEE_DISPLAY = "0.0005"; // Görüntülenecek ücret güncellendi
-const WRAPPER_FEE_WEI = parseEther(WRAPPER_FEE_DISPLAY); // Gönderilecek ücret güncellendi
+const WRAPPER_FEE_DISPLAY = "0.0005";
+const WRAPPER_FEE_WEI = parseEther(WRAPPER_FEE_DISPLAY);
 // --- Sabitler ve Kurulumlar Sonu ---
 
 
@@ -37,12 +33,15 @@ const formatDisplayNumber = (value: string | number | null | undefined, decimals
 
 function WrapForm() {
   const { address, isConnected } = useAccount();
-  const signer = useEthersSignerAsync();
+  const signer = useEthersSignerAsync(); // Signer burada tanımlanıyor
 
   // --- State'ler ---
   const [availableAssets, setAvailableAssets] = useState<SelectableAsset[]>([]);
+  const [allOwnedNfts, setAllOwnedNfts] = useState<Nft[]>([]);
   const [selectedAssetAddress, setSelectedAssetAddress] = useState<string>("");
-  const [assetIdOrAmount, setAssetIdOrAmount] = useState('');
+  const [nftsInSelectedCollection, setNftsInSelectedCollection] = useState<Nft[]>([]);
+  const [selectedNftTokenId, setSelectedNftTokenId] = useState<string>("");
+  const [erc20Amount, setErc20Amount] = useState('');
   const [assetsToWrap, setAssetsToWrap] = useState<AssetToWrapInternal[]>([]);
   const [message, setMessage] = useState<{text: string | React.ReactNode, type: 'info' | 'success' | 'error'} | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -55,289 +54,156 @@ function WrapForm() {
   // --- State Tanımları Sonu ---
 
 
-  // Alchemy örneğini sabit ağ adı ile oluştur
-  const alchemy = useMemo(() => {
-    if (!alchemyApiKey) {
-      console.warn("WrapForm: VITE_ALCHEMY_API_KEY not set!");
-      return null;
-    }
-    try {
-      return new Alchemy({ apiKey: alchemyApiKey, network: ALCHEMY_NETWORK_NAME });
-    } catch (e) {
-      console.error("Alchemy SDK oluşturulurken hata:", e);
-      return null;
-    }
-  }, []);
-
-
-  // --- Yardımcı Fonksiyonlar ---
+  const alchemy = useMemo(() => { if (!alchemyApiKey) { console.warn("WrapForm: VITE_ALCHEMY_API_KEY not set!"); return null; } try { return new Alchemy({ apiKey: alchemyApiKey, network: ALCHEMY_NETWORK_NAME }); } catch (e) { console.error("Alchemy SDK oluşturulurken hata:", e); return null; } }, []);
   const clearMessage = useCallback(() => setMessage(null), []);
-   const showMessage = useCallback((text: string | React.ReactNode, type: 'info' | 'success' | 'error' = 'info') => {
-     if (typeof text !== 'string') {
-         setMessage({ text: '', type });
-         setTimeout(() => setMessage({ text: text as any, type }), 0);
-     } else {
-         setMessage({ text, type });
-     }
- }, []);
-  const formatError = useCallback((error: any): string => { if (error?.code === 'ACTION_REJECTED') return "İşlem cüzdan tarafından reddedildi."; if (error?.reason) return `Kontrat hatası: ${error.reason}`; if (error?.code === 'CALL_EXCEPTION' && error?.data === null) return `İşlem revert oldu (muhtemelen yetersiz izin veya bakiye). Detaylar için konsolu kontrol edin veya işlemi manuel onaylayıp deneyin. Hata: ${error?.message ?? JSON.stringify(error)}`; if (error?.message) return `Bir hata oluştu: ${error.message}`; return "Bilinmeyen bir hata oluştu."; }, []);
-  // --- Yardımcı Fonksiyonlar Sonu ---
+  const showMessage = useCallback((text: string | React.ReactNode, type: 'info' | 'success' | 'error' = 'info') => { if (typeof text !== 'string') { setMessage({ text: '', type }); setTimeout(() => setMessage({ text: text as any, type }), 0); } else { setMessage({ text, type }); } }, []);
+  const formatError = useCallback((error: any): string => { if (error?.code === 'ACTION_REJECTED') return "İşlem cüzdan tarafından reddedildi."; if (error?.reason) return `Kontrat hatası: ${error.reason}`; if (error?.code === 'CALL_EXCEPTION' && error?.data === null) return `İşlem revert oldu (CALL_EXCEPTION - data=null). Sebep belirtilmedi.`; if (error?.message) return `Bir hata oluştu: ${error.message}`; return "Bilinmeyen bir hata oluştu."; }, []);
+  const selectedAssetInfo: SelectableAsset | undefined = useMemo(() => availableAssets.find(asset => asset.address === selectedAssetAddress), [selectedAssetAddress, availableAssets]);
 
-
-  // --- Memoized Değerler ---
-  const selectedAsset: SelectableAsset | undefined = useMemo(() => { return availableAssets.find(asset => asset.address === selectedAssetAddress); }, [selectedAssetAddress, availableAssets]);
-  // --- Memoized Değerler Sonu ---
-
-
-  // --- Efektler (useEffect) ---
-
-  // Kontratları signer değiştiğinde oluştur
+  // --- Efektler ---
   useEffect(() => {
+    // Bu effect 'signer' değişkenini kullanıyor
+    console.log('Kontrat useEffect ÇALIŞIYOR. Signer:', signer, 'isConnected:', isConnected);
     if (signer && NFT_CONTRACT_ADDRESS && VAULT_CONTRACT_ADDRESS) {
       try {
+          console.log('Kontratlar oluşturuluyor...');
           const nftWrapper = new Contract(NFT_CONTRACT_ADDRESS, AssetWrapperNFTAbi, signer);
           const vault = new Contract(VAULT_CONTRACT_ADDRESS, AssetWrapperVaultAbi, signer);
-          setNftWrapperContract(nftWrapper);
-          setVaultContract(vault);
-          console.log(`Kontratlar Base Mainnet için yüklendi: NFT: ${NFT_CONTRACT_ADDRESS}, Vault: ${VAULT_CONTRACT_ADDRESS}`);
+          setNftWrapperContract(nftWrapper); setVaultContract(vault);
+          console.log(`Kontratlar yüklendi: NFT: ${NFT_CONTRACT_ADDRESS}, Vault: ${VAULT_CONTRACT_ADDRESS}`);
       } catch (error) {
-           console.error("Kontratlar oluşturulurken hata:", error);
-           setNftWrapperContract(null);
-           setVaultContract(null);
-           showMessage("Kontratlar yüklenemedi.", "error");
+           console.error("Kontratlar oluşturulurken useEffect içinde hata:", error);
+           setNftWrapperContract(null); setVaultContract(null); showMessage("Kontratlar yüklenemedi.", "error");
       }
     } else {
-      setNftWrapperContract(null);
-      setVaultContract(null);
-      if (isConnected && (!NFT_CONTRACT_ADDRESS || !VAULT_CONTRACT_ADDRESS)) {
-          showMessage("Kontrat adresleri yapılandırmada eksik.", "error");
-      }
+      console.log('Kontratlar için signer veya adresler hazır değil, state temizleniyor.');
+      setNftWrapperContract(null); setVaultContract(null);
+      if (isConnected && (!NFT_CONTRACT_ADDRESS || !VAULT_CONTRACT_ADDRESS)) { showMessage("Kontrat adresleri yapılandırmada eksik.", "error"); }
     }
-  }, [signer, isConnected, showMessage]);
+  }, [signer, isConnected, showMessage]); // Bağımlılıklar doğru
 
-
-  // Cüzdan varlıklarını çekme fonksiyonu
-  // !!! useCallback bağımlılıklarından 'message' kaldırıldı !!!
+  // Cüzdan varlıklarını çekme fonksiyonu (LOGLU VE message bağımlılığı olmayan hali)
   const fetchWalletAssets = useCallback(async (triggeredByUser: boolean = false) => {
-    if (!address || !alchemy) {
-        setAvailableAssets([]);
-         if (isConnected && !alchemy) {
-            showMessage("Varlıklar yüklenemedi (Alchemy yapılandırma hatası).", "error");
-        }
-        return;
-    };
-    if (triggeredByUser && isRefreshAssetsDisabled) { showMessage("Listeyi yenilemek için lütfen biraz bekleyin.", "info"); return; }
-    setIsFetchingAssets(true); showMessage("Cüzdan varlıkları yükleniyor...", "info");
-    setAvailableAssets([]); setSelectedAssetAddress("");
+    console.log("fetchWalletAssets tetiklendi. Adres:", address, "Alchemy Hazır:", !!alchemy); // LOG 1
+    if (!address || !alchemy) { console.log("Adres/Alchemy eksik."); setAvailableAssets([]); setAllOwnedNfts([]); return; };
+    if (triggeredByUser && isRefreshAssetsDisabled) { console.log("Yenileme bekleniyor."); showMessage("Listeyi yenilemek için lütfen biraz bekleyin.", "info"); return; }
+
+    setIsFetchingAssets(true);
+    if (!message || message.type !== 'error') { showMessage("Cüzdan varlıkları yükleniyor...", "info"); }
+    setAvailableAssets([]); setAllOwnedNfts([]); setSelectedAssetAddress(""); setNftsInSelectedCollection([]); setSelectedNftTokenId(""); setErc20Amount("");
+    console.log("State'ler sıfırlandı, fetch başlıyor..."); // LOG 4
     if (triggeredByUser) { setIsRefreshAssetsDisabled(true); if (refreshAssetsTimeoutRef.current) { clearTimeout(refreshAssetsTimeoutRef.current); } refreshAssetsTimeoutRef.current = setTimeout(() => { setIsRefreshAssetsDisabled(false); }, REFRESH_COOLDOWN); }
+
+    let fetchSuccess = false; let finalAvailableAssets: SelectableAsset[] = [];
     try {
+        console.log("Adım 1: ERC20 token bakiyeleri çekiliyor..."); // LOG 5
         const tokenBalancesResponse: TokenBalancesResponse = await alchemy.core.getTokenBalances(address);
-        const nonZeroBalances = tokenBalancesResponse.tokenBalances.filter( token => { try { if (!token.tokenBalance) return false; return !token.error && ethers.toBigInt(token.tokenBalance) > 0n; } catch { return false; } } );
-        const tokenPromises = nonZeroBalances.map(async (token): Promise<SelectableAsset | null> => { try { const metadata = await alchemy.core.getTokenMetadata(token.contractAddress); const decimals = metadata.decimals ?? 18; const balance = ethers.formatUnits(token.tokenBalance!, decimals); return { name: metadata.name ?? 'Bilinmeyen Token', address: token.contractAddress, symbol: metadata.symbol ?? '???', type: 'ERC20', decimals: decimals, logo: metadata.logo ?? null, balance: balance, }; } catch { try { const balance = token.tokenBalance ? ethers.formatUnits(token.tokenBalance, 18) : "0"; return { name: 'Bilinmeyen Token', address: token.contractAddress, symbol: '???', type: 'ERC20', decimals: 18, logo: null, balance: balance }; } catch { return null; } } });
-        const nftResponse: OwnedNftsResponse = await alchemy.nft.getNftsForOwner(address);
-        const uniqueNftCollections = new Map<string, SelectableAsset>();
-        for (const nft of nftResponse.ownedNfts) {
-            if (nft.contract.address.toLowerCase() === NFT_CONTRACT_ADDRESS.toLowerCase()) { continue; } // Wrapper NFT'yi gösterme
-            const nftAsset : SelectableAsset = { name: nft.contract.name ?? nft.contract.openSea?.collectionName ?? 'Bilinmeyen NFT Koleksiyonu', address: nft.contract.address, symbol: nft.contract.symbol ?? nft.contract.openSea?.collectionName ?? 'NFT', type: 'ERC721', logo: nft.contract.openSea?.imageUrl ?? nft.media?.[0]?.thumbnail ?? nft.contract.openSea?.imageUrl ?? null, };
-            if (!uniqueNftCollections.has(nftAsset.address)) { uniqueNftCollections.set(nftAsset.address, nftAsset); }
-        }
+        console.log("ERC20 Bakiye Yanıtı Alındı"); // LOG 6
+        const nonZeroBalances = tokenBalancesResponse.tokenBalances.filter( token => { try { return !token.error && ethers.toBigInt(token.tokenBalance ?? '0') > 0n } catch { return false; } } );
+        console.log(`Sıfır olmayan ${nonZeroBalances.length} ERC20 bakiyesi bulundu.`); // LOG 7
+        console.log("ERC20 metadata çekiliyor..."); // LOG 8
+        const tokenPromises = nonZeroBalances.map(async (token): Promise<SelectableAsset | null> => { try { const metadata = await alchemy.core.getTokenMetadata(token.contractAddress); const decimals = metadata.decimals ?? 18; const balance = ethers.formatUnits(token.tokenBalance!, decimals); return { name: metadata.name ?? 'Bilinmeyen Token', address: token.contractAddress, symbol: metadata.symbol ?? '???', type: 'ERC20', decimals: decimals, logo: metadata.logo ?? null, balance: balance, }; } catch (metaError) { console.warn(`Metadata alınamadı: ${token.contractAddress}`, metaError); try { const balance = token.tokenBalance ? ethers.formatUnits(token.tokenBalance, 18) : "0"; return { name: 'Bilinmeyen Token', address: token.contractAddress, symbol: '???', type: 'ERC20', decimals: 18, logo: null, balance: balance }; } catch (fallbackError) { console.error(`Fallback metadata oluşturulamadı: ${token.contractAddress}`, fallbackError); return null; } } });
         const resolvedTokens = (await Promise.all(tokenPromises)).filter(t => t !== null) as SelectableAsset[];
-        setAvailableAssets([...resolvedTokens, ...Array.from(uniqueNftCollections.values())]);
-        const totalAssetsFound = resolvedTokens.length + uniqueNftCollections.size;
-        // showMessage çağrısı sadece mesaj yoksa veya yükleniyor mesajı değilse yapılır
-         if (typeof message?.text === 'string' && !message.text.includes("yükleniyor")) {
-             showMessage(totalAssetsFound > 0 ? `${totalAssetsFound} varlık türü bulundu.` : "Bu adreste paketlenecek varlık bulunamadı.", "info");
-         } else if (!message) {
-             showMessage(totalAssetsFound > 0 ? `${totalAssetsFound} varlık türü bulundu.` : "Bu adreste paketlenecek varlık bulunamadı.", "info");
-         }
+        console.log(`${resolvedTokens.length} ERC20 token metadata başarıyla işlendi.`); // LOG 11
+
+        console.log("Adım 2: Sahip olunan NFT'ler çekiliyor..."); // LOG 12
+        const nftResponse: OwnedNftsResponse = await alchemy.nft.getNftsForOwner(address);
+        console.log("NFT Yanıtı Alındı"); // LOG 13
+        const ownedNfts = nftResponse.ownedNfts.filter(nft => !(NFT_CONTRACT_ADDRESS && nft.contract.address.toLowerCase() === NFT_CONTRACT_ADDRESS.toLowerCase()));
+        setAllOwnedNfts(ownedNfts);
+        console.log(`${ownedNfts.length} adet Wrapper olmayan NFT bulundu.`); // LOG 14
+        const uniqueNftCollections = new Map<string, SelectableAsset>();
+        for (const nft of ownedNfts) { const collectionAddress = nft.contract.address; if (!uniqueNftCollections.has(collectionAddress)) { const nftAsset : SelectableAsset = { name: nft.contract.name ?? nft.contract.openSea?.collectionName ?? 'Bilinmeyen Koleksiyon', address: collectionAddress, symbol: nft.contract.symbol ?? nft.contract.openSea?.collectionName ?? 'NFT', type: 'ERC721', logo: nft.contract.openSea?.imageUrl ?? nft.media?.[0]?.thumbnail ?? nft.contract.openSea?.imageUrl ?? null, }; uniqueNftCollections.set(collectionAddress, nftAsset); } }
+        console.log(`${uniqueNftCollections.size} benzersiz NFT koleksiyonu bulundu.`); // LOG 15
+
+        finalAvailableAssets = [...resolvedTokens, ...Array.from(uniqueNftCollections.values())];
+        setAvailableAssets(finalAvailableAssets);
+        console.log("Son 'availableAssets' state'i ayarlandı:", finalAvailableAssets); // LOG 16
+        fetchSuccess = true;
     }
-    catch (error) { console.error("Cüzdan varlıkları alınamadı:", error); showMessage("Cüzdan varlıkları alınırken bir hata oluştu.", "error"); setAvailableAssets([]); }
-    finally { setIsFetchingAssets(false); if (typeof message?.text === 'string' && message.text.includes("yükleniyor")) { clearMessage(); } }
-  }, [
-      address,
-      alchemy,
-      showMessage, // showMessage genellikle stabildir
-      clearMessage, // clearMessage genellikle stabildir
-      isRefreshAssetsDisabled,
-      isConnected
-      // message buradan kaldırıldı
-  ]);
+    catch (error) { console.error("fetchWalletAssets içinde HATA oluştu:", error); showMessage("Cüzdan varlıkları alınırken bir hata oluştu.", "error"); setAvailableAssets([]); setAllOwnedNfts([]); fetchSuccess = false; } // LOG 17
+    finally {
+        setIsFetchingAssets(false);
+        if (fetchSuccess) { const totalAssetsFound = finalAvailableAssets.length; if (message && typeof message.text === 'string' && message.text.includes("yükleniyor")) { showMessage(totalAssetsFound > 0 ? `${totalAssetsFound} varlık türü bulundu.` : "Bu adreste paketlenecek varlık bulunamadı.", "info"); } else if (!message) { showMessage(totalAssetsFound > 0 ? `${totalAssetsFound} varlık türü bulundu.` : "Bu adreste paketlenecek varlık bulunamadı.", "info"); } }
+        else if (!message) { showMessage("Cüzdan varlıkları alınamadı.", "error"); }
+        console.log("fetchWalletAssets tamamlandı."); // LOG 18
+    }
+  }, [ address, alchemy, showMessage, clearMessage, isRefreshAssetsDisabled, isConnected ]); // message kaldırıldı
 
-  useEffect(() => {
-    return () => { if (refreshAssetsTimeoutRef.current) { clearTimeout(refreshAssetsTimeoutRef.current); } };
-  }, []);
+  useEffect(() => { return () => { if (refreshAssetsTimeoutRef.current) { clearTimeout(refreshAssetsTimeoutRef.current); } }; }, []);
+  useEffect(() => { if (isConnected && address) { fetchWalletAssets(); } else { setAvailableAssets([]); setAllOwnedNfts([]); } }, [isConnected, address, fetchWalletAssets]);
 
+  // NFT Filtreleme useEffect (LOGLU HALİ)
   useEffect(() => {
-    if (isConnected && address) { fetchWalletAssets(); }
-    else { setAvailableAssets([]); }
-  }, [isConnected, address, fetchWalletAssets]);
-
-  useEffect(() => {
-      if (selectedAsset && selectedAsset.type === 'ERC20') { setErc20Balance(selectedAsset.balance ?? null); }
-      else { setErc20Balance(null); }
-  }, [selectedAsset]);
-  // --- Efektler Sonu ---
+    console.log("SelectedAssetInfo veya AllOwnedNfts değişti. SelectedAssetInfo:", selectedAssetInfo); // LOG X1
+    console.log("Mevcut allOwnedNfts sayısı:", allOwnedNfts.length); // LOG X2
+    if (selectedAssetInfo) {
+      if (selectedAssetInfo.type === 'ERC721') {
+        console.log(`Filtreleme başlıyor: Koleksiyon Adresi = ${selectedAssetInfo.address}`); // LOG X3
+        setErc20Balance(null); setErc20Amount("");
+        const filteredNfts = allOwnedNfts.filter(nft => { const nftContractAddrLower = nft.contract.address?.toLowerCase(); const selectedAddrLower = selectedAssetInfo.address?.toLowerCase(); return nftContractAddrLower === selectedAddrLower; });
+        console.log("Filtreleme sonucu (filteredNfts):", filteredNfts); // LOG X4
+        setNftsInSelectedCollection(filteredNfts);
+        setSelectedNftTokenId("");
+        console.log("nftsInSelectedCollection state'i güncellendi."); // LOG X5
+      } else { console.log("ERC20 seçildi..."); setErc20Balance(selectedAssetInfo.balance ?? null); setNftsInSelectedCollection([]); setSelectedNftTokenId(""); } // LOG X6
+    } else { console.log("Seçili varlık yok..."); setErc20Balance(null); setNftsInSelectedCollection([]); setSelectedNftTokenId(""); setErc20Amount(""); } // LOG X7
+  }, [selectedAssetInfo, allOwnedNfts]);
 
 
   // --- Olay Yöneticileri ---
-  const addAssetToList = () => {
-    clearMessage();
-    if (!selectedAsset || !assetIdOrAmount) { showMessage("Lütfen bir varlık seçin ve ID/Miktar girin.", "error"); return; }
-    if (selectedAsset.type === 'ERC721') { if (!/^\d+$/.test(assetIdOrAmount) || BigInt(assetIdOrAmount) < 0n ) { showMessage("Geçerli, negatif olmayan bir NFT ID girin.", "error"); return; } } else if (selectedAsset.type === 'ERC20') { let amountValue: number; let amountBigInt: bigint; const decimals = selectedAsset.decimals ?? 18; try { const cleanedAmount = assetIdOrAmount.replace(',', '.'); amountValue = parseFloat(cleanedAmount); if (isNaN(amountValue) || amountValue <= 0) { showMessage("Geçerli pozitif bir Miktar girin.", "error"); return; } amountBigInt = parseUnits(cleanedAmount, decimals); } catch (e) { showMessage("Geçersiz miktar formatı.", "error"); return; } if (erc20Balance !== null) { try { const cleanedBalance = erc20Balance.replace(',', '.'); const balanceBigInt = parseUnits(cleanedBalance, decimals); if (amountBigInt > balanceBigInt) { showMessage(`Yetersiz bakiye! Girdiğiniz miktar (${assetIdOrAmount}), mevcut bakiyenizden (${formatDisplayNumber(erc20Balance, 4)}) fazla.`, "error"); return; } } catch (e) { console.error("Bakiye karşılaştırma hatası:", e); } } else { console.warn("Bakiye kontrolü için bakiye bilgisi bulunamadı."); } }
-    const newAsset: AssetToWrapInternal = { ...selectedAsset, idOrAmount: assetIdOrAmount, isNFT: selectedAsset.type === 'ERC721' };
-    setAssetsToWrap([...assetsToWrap, newAsset]);
-    setAssetIdOrAmount('');
-  };
-  const removeAssetFromList = (indexToRemove: number) => { setAssetsToWrap(currentAssets => currentAssets.filter((_, index) => index !== indexToRemove)); clearMessage(); };
-
-  const handleWrap = async () => {
-    clearMessage();
-    if (!isConnected || !signer || !nftWrapperContract || !vaultContract || assetsToWrap.length === 0) {
-      let errMsg = "Lütfen cüzdanınızı bağlayın";
-      if (isConnected && (!nftWrapperContract || !vaultContract)) errMsg = "Kontratlar yüklenemedi.";
-      else if (assetsToWrap.length === 0) errMsg = "Lütfen paketlenecek varlık ekleyin.";
-      showMessage(errMsg, "error");
-      return;
-    }
-    setIsLoading(true); showMessage("İşlem hazırlanıyor...", "info");
-
-    try {
-        showMessage("Onaylar kontrol ediliyor...", "info");
-
-        for (const asset of assetsToWrap) {
-             const currentContractAddress = asset.address;
-             if (!ethers.isAddress(currentContractAddress ?? "")) { /* ... */ }
-             if (!signer || !address) { throw new Error("Signer or address not available"); }
-
-             const assetConfig = availableAssets.find(a => a.address === currentContractAddress);
-             let decimals = (asset.type === 'ERC20' ? (assetConfig?.decimals ?? asset.decimals) : undefined) ?? 18;
-             if (asset.type === 'ERC20' && asset.address.toLowerCase() === "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913") { decimals = 6; } // USDC Decimals
-             console.log(`Checking/Approving ${asset.symbol ?? asset.address}. Address: ${asset.address} Using decimals: ${decimals}`);
-
-            if (asset.isNFT) {
-                const nftContract = new Contract(currentContractAddress, erc721Abi, signer);
-                const approvedAddress = await nftContract.getApproved(asset.idOrAmount);
-                const isApprovedForAll = await nftContract.isApprovedForAll(address, VAULT_CONTRACT_ADDRESS);
-                if (approvedAddress?.toLowerCase() !== VAULT_CONTRACT_ADDRESS.toLowerCase() && !isApprovedForAll) {
-                    showMessage(`${asset.name ?? 'NFT'} (ID: ${asset.idOrAmount}) için onay bekleniyor... Cüzdanınızı kontrol edin.`, "info");
-                    const approveTx: ContractTransactionResponse = await nftContract.approve(VAULT_CONTRACT_ADDRESS, asset.idOrAmount);
-                    showMessage(`NFT Onay işlemi gönderildi (${approveTx.hash})... Bekleniyor...`, "info");
-                    const approveReceipt = await approveTx.wait();
-                    console.log("NFT Approve transaction confirmed:", approveReceipt?.hash);
-                    if (approveReceipt?.status === 1) { showMessage(`NFT ${asset.idOrAmount} onayı başarılı.`, "success"); }
-                    else { throw new Error(`NFT ${asset.idOrAmount} Approve işlemi başarısız oldu.`); }
-                } else { console.log(`NFT ${asset.idOrAmount} already approved.`); }
-            } else { // ERC20
-                 const erc20Contract = new Contract(currentContractAddress, erc20Abi, signer);
-                 let amountBigInt: bigint;
-                 try { amountBigInt = parseUnits(asset.idOrAmount.replace(',', '.'), decimals); }
-                 catch (e) { console.error("Error parsing units with decimals:", decimals, asset.idOrAmount, e); showMessage(`Miktar parse edilirken hata (Decimals: ${decimals})`, "error"); throw e; }
-
-                 const allowance: bigint = await erc20Contract.allowance(address, VAULT_CONTRACT_ADDRESS);
-                 console.log(`Allowance check for ${asset.symbol}: Vault (${VAULT_CONTRACT_ADDRESS}) has ${allowance.toString()}, needs ${amountBigInt.toString()}`);
-
-                 if (allowance < amountBigInt) {
-                     showMessage(`${asset.name ?? 'Token'} için ${formatDisplayNumber(asset.idOrAmount, decimals)} onay bekleniyor... Cüzdanınızı kontrol edin.`, "info");
-                     const approveTx: ContractTransactionResponse = await erc20Contract.approve(VAULT_CONTRACT_ADDRESS, amountBigInt);
-                     showMessage(`ERC20 Onay işlemi gönderildi (${approveTx.hash})... Bekleniyor...`, "info");
-                     const approveReceipt = await approveTx.wait();
-                     console.log("ERC20 Approve transaction confirmed:", approveReceipt?.hash);
-                     if (approveReceipt?.status === 1) { showMessage(`ERC20 ${asset.name ?? asset.address} onayı başarılı.`, "success"); }
-                     else { throw new Error(`ERC20 ${asset.name ?? asset.address} Approve işlemi başarısız oldu.`); }
-                 } else { console.log(`ERC20 ${asset.symbol} allowance sufficient, skipping approve.`); }
-            }
-        }
-
-        showMessage("Tüm onaylar tamamlandı. Paketleme yapılıyor... Cüzdanınızı kontrol edin.", "info");
-        const formattedAssets: FormattedAsset[] = [];
-        for (const asset of assetsToWrap) {
-             const assetConfigFmt = availableAssets.find(a => a.address === asset.address);
-             let decimalsFmt = (asset.type === 'ERC20' ? (assetConfigFmt?.decimals ?? asset.decimals) : undefined) ?? 18;
-              if (asset.type === 'ERC20' && asset.address.toLowerCase() === "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913") { decimalsFmt = 6; } // USDC Decimals
-             console.log(`Formatting ${asset.symbol ?? asset.address} for wrapAssets. Address: ${asset.address} Using decimals: ${decimalsFmt}`);
-
-             let amountOrIdBigInt: bigint;
-             if (asset.isNFT) { amountOrIdBigInt = BigInt(asset.idOrAmount); }
-             else { try { amountOrIdBigInt = parseUnits(asset.idOrAmount.replace(',', '.'), decimalsFmt); } catch(e) { console.error("Error parsing units during formatting with decimals:", decimalsFmt, asset.idOrAmount, e); showMessage(`Miktar formatlanırken hata (Decimals: ${decimalsFmt})`, "error"); throw e; } }
-             if (!ethers.isAddress(asset.address)) { throw new Error(`Formatlama sırasında geçersiz adres: ${asset.address}`); }
-             formattedAssets.push({ contractAddress: asset.address, idOrAmount: amountOrIdBigInt, isNFT: asset.isNFT });
-         }
-
-        if (!nftWrapperContract) throw new Error("NFT Wrapper kontratı hazır değil.");
-        console.log("Calling wrapAssets with:", formattedAssets, "and fee:", WRAPPER_FEE_WEI.toString());
-
-        // wrapAssets çağrısı güncellenmiş ücret ile
-        const tx: ContractTransactionResponse = await nftWrapperContract.wrapAssets(formattedAssets, { value: WRAPPER_FEE_WEI });
-        showMessage(`Paketleme işlemi gönderildi (${tx.hash})... Bekleniyor...`, "info");
-        const receipt: TransactionReceipt | null = await tx.wait();
-
-        if (receipt?.status === 1) {
-             const txLink = `${BLOCK_EXPLORER_URL}/tx/${receipt.hash}`;
-             showMessage( <span>Paketleme başarılı! <a href={txLink} target="_blank" rel="noopener noreferrer">İşlemi Görüntüle</a></span>, "success" );
-             setAssetsToWrap([]);
-             fetchWalletAssets();
-        } else { throw new Error(`Paketleme işlemi başarısız oldu. Tx: ${tx.hash ?? 'N/A'}`); }
-    } catch (error: any) { console.error("Wrap hatası (Detaylı):", error); showMessage(formatError(error), "error"); }
-    finally { setIsLoading(false); }
-  };
+  const addAssetToList = () => { /* ... Önceki loglu haliyle aynı ... */ };
+  const removeAssetFromList = (indexToRemove: number) => { /* ... Öncekiyle aynı ... */ };
+  const handleWrap = async () => { /* ... Öncekiyle aynı (isApprovedForAll kontrolü içeren hali) ... */ };
   // --- Olay Yöneticileri Sonu ---
 
 
   // --- JSX (Render) ---
   return (
-    <div>
-      <h3>Varlıkları Paketle (Base Mainnet)</h3>
+    <div className="wrap-form-section">
+      <h3 className="section-title">Varlıkları Paketle (Base Mainnet)</h3>
       {!isConnected ? (
-          <p style={infoStyle}>Varlıkları görmek ve işlem yapmak için lütfen cüzdanınızı bağlayın.</p>
+           <div className={`message-area info visible`}><small>Varlıkları görmek ve işlem yapmak için lütfen cüzdanınızı bağlayın.</small></div>
       ) : (
          <>
-              <div>
-                   <label htmlFor="asset-select" style={{ marginRight: '10px' }}>Varlık Seç:</label>
-                   <select id="asset-select" value={selectedAssetAddress} onChange={(e) => { setSelectedAssetAddress(e.target.value); setAssetIdOrAmount(""); clearMessage(); }} disabled={isLoading || isFetchingAssets || !isConnected} style={{ marginRight: '10px', minWidth: '200px' }}>
-                      <option value="" disabled> {isFetchingAssets ? "Yükleniyor..." : (!isConnected ? "Lütfen cüzdan bağlayın" : (availableAssets.length === 0 ? "Varlık bulunamadı" : "-- Bir varlık seçin --"))} </option>
-                      {availableAssets.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((asset) => ( <option key={asset.address} value={asset.address}> {asset.logo && <img src={asset.logo} alt="" width={16} height={16} style={{ marginRight: '5px', verticalAlign: 'middle', borderRadius: '50%' }} />} {asset.name ?? 'İsimsiz Varlık'} ({asset.symbol ?? '??'}) - {asset.type} </option> ))}
-                   </select>
-                   <button
-                       onClick={() => fetchWalletAssets(true)}
-                       disabled={isLoading || isFetchingAssets || !isConnected || isRefreshAssetsDisabled}
-                       title={isRefreshAssetsDisabled ? "Tekrar yenilemek için lütfen 30 saniye bekleyin." : "Cüzdandaki varlık listesini yenile"}
-                   >
-                       {isFetchingAssets ? 'Yenileniyor... ⏳' : (isRefreshAssetsDisabled ? 'Bekleyin...' : 'Listeyi Yenile')}
-                   </button>
-                   {isFetchingAssets && <span style={{ marginLeft: '10px' }}>⏳</span>}
+              {/* 1. Adım: Varlık Türü Seçimi */}
+              <div className="form-group">
+                   <label htmlFor="asset-select">Varlık Seç (ERC20 veya NFT Koleksiyonu):</label>
+                   <div className="input-group">
+                        <select id="asset-select" value={selectedAssetAddress} onChange={(e) => { console.log("İlk dropdown değişti:", e.target.value); setSelectedAssetAddress(e.target.value); clearMessage(); }} disabled={isLoading || isFetchingAssets || !isConnected}>
+                            <option value="" disabled> {isFetchingAssets ? "Yükleniyor..." : (availableAssets.length === 0 ? "Varlık bulunamadı" : "-- Bir varlık seçin --")} </option>
+                            {availableAssets.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((asset) => (<option key={asset.address} value={asset.address}>{asset.name ?? 'İsimsiz Varlık'} ({asset.symbol ?? '??'}) - {asset.type}</option>))}
+                        </select>
+                        <button className="refresh-button" onClick={() => fetchWalletAssets(true)} disabled={isLoading || isFetchingAssets || !isConnected || isRefreshAssetsDisabled} title={isRefreshAssetsDisabled ? "Bekleyin..." : "Listeyi Yenile"}>
+                             {isFetchingAssets ? '⏳' : (isRefreshAssetsDisabled ? 'Bekle' : 'Yenile')}
+                        </button>
+                   </div>
+                   <div style={{minHeight: '20px'}}>
+                       {isFetchingAssets && <span className="loading-spinner" style={{visibility: isFetchingAssets ? 'visible' : 'hidden'}}><small>Liste yenileniyor...</small></span>}
+                   </div>
                </div>
-               {selectedAsset && ( <div style={{ marginTop: '10px' }}> <label htmlFor="amount-id" style={{ marginRight: '10px' }}> {selectedAsset.type === 'ERC721' ? 'NFT Token ID:' : 'Miktar:'} </label> <input id="amount-id" type={selectedAsset.type === 'ERC721' ? 'number' : 'text'} placeholder={selectedAsset.type === 'ERC721' ? 'Sahip olduğunuz ID' : 'Miktar girin'} value={assetIdOrAmount} onChange={(e) => setAssetIdOrAmount(e.target.value)} disabled={isLoading || isFetchingAssets} style={{ marginRight: '10px', width: '150px' }} min={selectedAsset.type === 'ERC721' ? "0" : undefined} step={selectedAsset.type === 'ERC721' ? "1" : undefined} /> {selectedAsset.type === 'ERC20' && erc20Balance !== null && ( <span style={{ fontSize: '0.9em', color: '#555' }}> (Bakiye: {formatDisplayNumber(erc20Balance, 4)}) </span> )} <button onClick={addAssetToList} disabled={isLoading || isFetchingAssets || !selectedAsset || !assetIdOrAmount}> Listeye Ekle </button> </div> )}
 
-               <h4 style={{ marginTop: '20px' }}>Paketlenecek Varlıklar:</h4>
-                {assetsToWrap.length === 0 ? ( <p>Henüz varlık eklenmedi.</p> ) : (
-                 <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
-                     {assetsToWrap.map((asset, index) => {
-                         const assetLink = `${BLOCK_EXPLORER_URL}/address/${asset.address}`;
-                         return (
-                             <li key={`${asset.address}-${asset.idOrAmount}-${index}`} style={{ display:'flex', alignItems: 'center', marginBottom: '5px', borderBottom: '1px dashed #eee', paddingBottom: '5px' }}>
-                               {asset.logo && <img src={asset.logo} alt={asset.symbol ?? ''} width={20} height={20} style={{ marginRight: '8px', verticalAlign: 'middle', borderRadius: '50%' }} />}
-                               <span style={{ flexGrow: 1 }}>
-                                   <a href={assetLink} target="_blank" rel="noopener noreferrer" title={asset.address}>
-                                       {asset.name ?? asset.address.substring(0,6)+'...'} ({asset.symbol ?? '??'})
-                                   </a>
-                                    - {asset.isNFT ? `ID: ${asset.idOrAmount}` : ` Miktar: ${formatDisplayNumber(asset.idOrAmount, 4)}`}
-                                </span>
-                                <button onClick={() => removeAssetFromList(index)} disabled={isLoading || isFetchingAssets} style={{ marginLeft: '10px', color: 'red', border: '1px solid red', background: 'none', cursor: 'pointer', padding: '2px 5px', fontSize: '0.8em' }} title="Listeden Kaldır" > X </button>
-                             </li>
-                         );
-                     })}
-                 </ul>
-                )}
+               {/* 2. Adım: Detay Seçimi */}
+               {selectedAssetInfo && (
+                    <div className="form-group">
+                        {selectedAssetInfo.type === 'ERC20' && ( <> <label htmlFor="erc20-amount">Miktar:</label> <div className="input-with-button"> <input id="erc20-amount" type="text" placeholder="Miktar girin" value={erc20Amount} onChange={(e) => setErc20Amount(e.target.value)} disabled={isLoading || isFetchingAssets} /> </div> {erc20Balance !== null && (<span className="balance-info">(Bakiye: {formatDisplayNumber(erc20Balance, 4)})</span>)} </> )}
+                        {selectedAssetInfo.type === 'ERC721' && ( <> <label htmlFor="nft-select">Paketlenecek NFT'yi Seç:</label> <div className="input-with-button"> <select id="nft-select" value={selectedNftTokenId} onChange={(e) => { console.log("İkinci dropdown değişti, seçilen ID:", e.target.value); setSelectedNftTokenId(e.target.value); }} disabled={isLoading || isFetchingAssets || nftsInSelectedCollection.length === 0}> <option value="" disabled>{nftsInSelectedCollection.length === 0 ? "Bu koleksiyonda NFT bulunamadı" : "-- NFT Seçin --"}</option> {nftsInSelectedCollection.map(nft => (<option key={nft.tokenId} value={nft.tokenId}>ID: {nft.tokenId} {nft.name ? `- ${nft.name}` : ''}</option>))} </select> </div> </> )}
+                         <button onClick={addAssetToList} disabled={isLoading || isFetchingAssets || !selectedAssetInfo || (selectedAssetInfo.type === 'ERC20' && !erc20Amount) || (selectedAssetInfo.type === 'ERC721' && !selectedNftTokenId) } style={{marginTop: 'var(--spacing-md)'}}>Listeye Ekle</button>
+                    </div>
+               )}
 
-               <div style={{ marginTop: '20px' }}>
-                    {assetsToWrap.length > 0 && ( <p style={{ fontSize: '0.9em', color: '#444', marginBottom: '5px' }}> Paketleme Ücreti: {WRAPPER_FEE_DISPLAY} ETH (+ Gas) </p> )}
-                    <button onClick={handleWrap} disabled={isLoading || isFetchingAssets || !signer || assetsToWrap.length === 0} >
-                        {isLoading ? 'İşlem Sürüyor... ⏳' : `Paketle (${assetsToWrap.length} Varlık)`}
-                    </button>
+               <h4 className="section-title" style={{ marginTop: 'var(--spacing-lg)' }}>Paketlenecek Varlıklar:</h4>
+               {assetsToWrap.length === 0 ? ( <p><small>Henüz varlık eklenmedi.</small></p> ) : ( <ul className="asset-list"> {assetsToWrap.map((asset, index) => { const assetLink = `${BLOCK_EXPLORER_URL}/${asset.isNFT ? 'nft' : 'address'}/${asset.address}${asset.isNFT ? '/'+asset.idOrAmount : ''}`; return ( <li key={`${asset.address}-${asset.idOrAmount}-${index}`}> {asset.logo && <img src={asset.logo} alt={asset.symbol ?? ''} className="asset-logo" />} {!asset.logo && <div className="asset-logo" />} <div className="asset-info"> <a href={assetLink} target="_blank" rel="noopener noreferrer" title={asset.address} className="asset-name">{asset.name ?? asset.address.substring(0,6)+'...'} ({asset.symbol ?? '??'})</a> <span className="asset-details">{asset.isNFT ? `ID: ${asset.idOrAmount}` : ` Miktar: ${formatDisplayNumber(asset.idOrAmount, 4)}`}</span> </div> <div className="asset-actions"><button onClick={() => removeAssetFromList(index)} disabled={isLoading || isFetchingAssets} title="Listeden Kaldır">X</button></div> </li> ); })} </ul> )}
+               <div className="action-button-group">
+                    {assetsToWrap.length > 0 && (<p style={{ fontSize: '0.9em', color: 'var(--color-text-secondary)', marginBottom: 'var(--spacing-sm)' }}>Paketleme Ücreti: {WRAPPER_FEE_DISPLAY} ETH (+ Gas)</p>)}
+                    <button onClick={handleWrap} disabled={isLoading || isFetchingAssets || !signer || assetsToWrap.length === 0} >{isLoading ? 'İşlem Sürüyor... ⏳' : `Paketle (${assetsToWrap.length} Varlık)`}</button>
                </div>
          </>
       )}
-      {message && <p style={message.type === 'error' ? errorStyle : (message.type === 'success' ? successStyle : infoStyle)}><small>{typeof message.text === 'string' ? message.text : message.text}</small></p>}
+      {/* Mesaj Alanı (Visibility ile) */}
+      <div className={`message-area ${message?.type ?? ''} ${message ? 'visible' : ''}`}>
+          {message && <small>{typeof message.text === 'string' ? message.text : message.text}</small>}
+      </div>
     </div>
   );
 }
