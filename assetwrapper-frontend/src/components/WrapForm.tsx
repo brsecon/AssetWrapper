@@ -33,7 +33,7 @@ const formatDisplayNumber = (value: string | number | null | undefined, decimals
 
 function WrapForm() {
   const { address, isConnected } = useAccount();
-  const signer = useEthersSignerAsync(); // Signer burada tanımlanıyor
+  const signer = useEthersSignerAsync();
 
   // --- State'ler ---
   const [availableAssets, setAvailableAssets] = useState<SelectableAsset[]>([]);
@@ -62,7 +62,6 @@ function WrapForm() {
 
   // --- Efektler ---
   useEffect(() => {
-    // Bu effect 'signer' değişkenini kullanıyor
     console.log('Kontrat useEffect ÇALIŞIYOR. Signer:', signer, 'isConnected:', isConnected);
     if (signer && NFT_CONTRACT_ADDRESS && VAULT_CONTRACT_ADDRESS) {
       try {
@@ -80,7 +79,7 @@ function WrapForm() {
       setNftWrapperContract(null); setVaultContract(null);
       if (isConnected && (!NFT_CONTRACT_ADDRESS || !VAULT_CONTRACT_ADDRESS)) { showMessage("Kontrat adresleri yapılandırmada eksik.", "error"); }
     }
-  }, [signer, isConnected, showMessage]); // Bağımlılıklar doğru
+  }, [signer, isConnected, showMessage]);
 
   // Cüzdan varlıklarını çekme fonksiyonu (LOGLU VE message bağımlılığı olmayan hali)
   const fetchWalletAssets = useCallback(async (triggeredByUser: boolean = false) => {
@@ -152,8 +151,36 @@ function WrapForm() {
 
 
   // --- Olay Yöneticileri ---
-  const addAssetToList = () => { /* ... Önceki loglu haliyle aynı ... */ };
-  const removeAssetFromList = (indexToRemove: number) => { /* ... Öncekiyle aynı ... */ };
+  // addAssetToList (LOGLU HALİ)
+  const addAssetToList = () => {
+    console.log("addAssetToList çağrıldı."); // LOG A
+    clearMessage();
+    console.log("Seçili Varlık Bilgisi:", selectedAssetInfo); // LOG B
+    if (!selectedAssetInfo) { console.log("Varlık seçilmedi, fonksiyondan çıkılıyor."); showMessage("Lütfen bir varlık seçin.", "error"); return; } // LOG C
+    let idOrAmountToAdd: string; let isNftAsset: boolean;
+    if (selectedAssetInfo.type === 'ERC721') {
+        console.log("Seçili varlık tipi: ERC721. Seçilen NFT ID:", selectedNftTokenId); // LOG D
+        if (!selectedNftTokenId) { console.log("NFT ID seçilmedi, fonksiyondan çıkılıyor."); showMessage("Lütfen koleksiyondan bir NFT seçin.", "error"); return; } // LOG E
+        idOrAmountToAdd = selectedNftTokenId; isNftAsset = true;
+        console.log("NFT eklenecek:", idOrAmountToAdd); // LOG F
+    } else { // ERC20
+        console.log("Seçili varlık tipi: ERC20. Girilen Miktar:", erc20Amount); // LOG G
+        if (!erc20Amount) { console.log("Miktar girilmedi, fonksiyondan çıkılıyor."); showMessage("Lütfen geçerli bir miktar girin.", "error"); return; } // LOG H
+        let amountValue: number; let amountBigInt: bigint; const decimals = selectedAssetInfo.decimals ?? 18;
+        try { const cleanedAmount = erc20Amount.replace(',', '.'); amountValue = parseFloat(cleanedAmount); if (isNaN(amountValue) || amountValue <= 0) { console.log("Geçersiz miktar (<= 0 veya NaN)..."); showMessage("Geçerli pozitif bir Miktar girin.", "error"); return; } amountBigInt = parseUnits(cleanedAmount, decimals); } // LOG I
+        catch (e) { console.log("Miktar parse hatası:", e); showMessage("Geçersiz miktar formatı.", "error"); return; } // LOG J
+        if (erc20Balance !== null) { try { const cleanedBalance = erc20Balance.replace(',', '.'); const balanceBigInt = parseUnits(cleanedBalance, decimals); console.log("Bakiye kontrolü: İstenen:", amountBigInt.toString(), "Mevcut:", balanceBigInt.toString()); if (amountBigInt > balanceBigInt) { console.log("Yetersiz bakiye..."); showMessage(`Yetersiz bakiye!...`, "error"); return; } } // LOG K, L
+            catch (e) { console.error("Bakiye karşılaştırma hatası:", e); } } else { console.warn("Bakiye kontrolü için bakiye bilgisi bulunamadı."); }
+        idOrAmountToAdd = erc20Amount; isNftAsset = false;
+        console.log("ERC20 eklenecek Miktar:", idOrAmountToAdd); // LOG M
+    }
+    const newAsset: AssetToWrapInternal = { ...selectedAssetInfo, idOrAmount: idOrAmountToAdd, isNFT: isNftAsset, };
+    console.log("Oluşturulan yeni varlık objesi:", newAsset); // LOG N
+    setAssetsToWrap(currentAssets => { const updatedAssets = [...currentAssets, newAsset]; console.log("AssetsToWrap state'i güncelleniyor. Yeni liste:", updatedAssets); return updatedAssets; }); // LOG O
+    console.log("Giriş alanları sıfırlanıyor."); // LOG P
+    setErc20Amount(''); setSelectedNftTokenId('');
+  };
+  const removeAssetFromList = (indexToRemove: number) => { /* ... */ setAssetsToWrap(currentAssets => currentAssets.filter((_, index) => index !== indexToRemove)); clearMessage(); };
   const handleWrap = async () => { /* ... Öncekiyle aynı (isApprovedForAll kontrolü içeren hali) ... */ };
   // --- Olay Yöneticileri Sonu ---
 
@@ -170,7 +197,7 @@ function WrapForm() {
               <div className="form-group">
                    <label htmlFor="asset-select">Varlık Seç (ERC20 veya NFT Koleksiyonu):</label>
                    <div className="input-group">
-                        <select id="asset-select" value={selectedAssetAddress} onChange={(e) => { console.log("İlk dropdown değişti:", e.target.value); setSelectedAssetAddress(e.target.value); clearMessage(); }} disabled={isLoading || isFetchingAssets || !isConnected}>
+                        <select id="asset-select" value={selectedAssetAddress} onChange={(e) => { setSelectedAssetAddress(e.target.value); clearMessage(); }} disabled={isLoading || isFetchingAssets || !isConnected}>
                             <option value="" disabled> {isFetchingAssets ? "Yükleniyor..." : (availableAssets.length === 0 ? "Varlık bulunamadı" : "-- Bir varlık seçin --")} </option>
                             {availableAssets.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((asset) => (<option key={asset.address} value={asset.address}>{asset.name ?? 'İsimsiz Varlık'} ({asset.symbol ?? '??'}) - {asset.type}</option>))}
                         </select>
@@ -187,7 +214,7 @@ function WrapForm() {
                {selectedAssetInfo && (
                     <div className="form-group">
                         {selectedAssetInfo.type === 'ERC20' && ( <> <label htmlFor="erc20-amount">Miktar:</label> <div className="input-with-button"> <input id="erc20-amount" type="text" placeholder="Miktar girin" value={erc20Amount} onChange={(e) => setErc20Amount(e.target.value)} disabled={isLoading || isFetchingAssets} /> </div> {erc20Balance !== null && (<span className="balance-info">(Bakiye: {formatDisplayNumber(erc20Balance, 4)})</span>)} </> )}
-                        {selectedAssetInfo.type === 'ERC721' && ( <> <label htmlFor="nft-select">Paketlenecek NFT'yi Seç:</label> <div className="input-with-button"> <select id="nft-select" value={selectedNftTokenId} onChange={(e) => { console.log("İkinci dropdown değişti, seçilen ID:", e.target.value); setSelectedNftTokenId(e.target.value); }} disabled={isLoading || isFetchingAssets || nftsInSelectedCollection.length === 0}> <option value="" disabled>{nftsInSelectedCollection.length === 0 ? "Bu koleksiyonda NFT bulunamadı" : "-- NFT Seçin --"}</option> {nftsInSelectedCollection.map(nft => (<option key={nft.tokenId} value={nft.tokenId}>ID: {nft.tokenId} {nft.name ? `- ${nft.name}` : ''}</option>))} </select> </div> </> )}
+                        {selectedAssetInfo.type === 'ERC721' && ( <> <label htmlFor="nft-select">Paketlenecek NFT'yi Seç:</label> <div className="input-with-button"> <select id="nft-select" value={selectedNftTokenId} onChange={(e) => { setSelectedNftTokenId(e.target.value); }} disabled={isLoading || isFetchingAssets || nftsInSelectedCollection.length === 0}> <option value="" disabled>{nftsInSelectedCollection.length === 0 ? "Bu koleksiyonda NFT bulunamadı" : "-- NFT Seçin --"}</option> {nftsInSelectedCollection.map(nft => (<option key={nft.tokenId} value={nft.tokenId}>ID: {nft.tokenId} {nft.name ? `- ${nft.name}` : ''}</option>))} </select> </div> </> )}
                          <button onClick={addAssetToList} disabled={isLoading || isFetchingAssets || !selectedAssetInfo || (selectedAssetInfo.type === 'ERC20' && !erc20Amount) || (selectedAssetInfo.type === 'ERC721' && !selectedNftTokenId) } style={{marginTop: 'var(--spacing-md)'}}>Listeye Ekle</button>
                     </div>
                )}
