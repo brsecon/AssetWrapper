@@ -6,11 +6,12 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./interfaces/IAssetWrapperVault.sol";
+import "./interfaces/IAssetWrapperVault.sol"; // Bu dosyanın projenizde doğru yerde olduğundan emin olun
 
 /**
  * @title AssetWrapperNFT - ERC721 Token representing ownership of wrapped assets.
  * @dev Manages the lifecycle of wrapped assets and interacts with a Vault contract. Uses Custom Errors. Includes gas optimizations.
+ * @notice Updated to automatically set a fixed Token URI upon minting.
  */
 contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
     // --- Custom Errors ---
@@ -37,6 +38,10 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
     // --- State Variables ---
     address public wrapperVaultAddress;
 
+    // <<< YENİ: Tüm NFT'ler için kullanılacak sabit metadata URI'si >>>
+    // !!! DEPLOY ETmeden ÖNCE BURAYI KENDİ METADATA URI'NİZLE GÜNCELLEYİN !!!
+    string private constant FIXED_TOKEN_URI = "ipfs://bafkreif6cgi7ijkg47vbp7kmcybejyvvsdt3rtoky4tkifurvtwolyzrjm"; // Örn: "ipfs://QmSharedMetadata..."
+
     struct Asset {
         address contractAddress;
         uint256 idOrAmount; // tokenId for ERC721, amount for ERC20
@@ -61,6 +66,10 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         if (_wrapperVaultAddress == address(0)) {
             revert ZeroVaultAddress();
         }
+        if (bytes(FIXED_TOKEN_URI).length == 0) {
+             // Opsiyonel: Deploy sırasında URI'nin boş olmadığını kontrol edebilirsiniz.
+             // revert FixedURINotSet(); // Yeni bir error tanımlamanız gerekir
+        }
         wrapperVaultAddress = _wrapperVaultAddress;
         emit WrapperVaultAddressSet(_wrapperVaultAddress);
     }
@@ -74,7 +83,6 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         if (numAssets == 0) revert EmptyWrapper();
         if (numAssets > MAX_ASSETS_PER_TX) revert MaxAssetsExceeded();
 
-        // DÜZELTME: 'memory' kaldırıldı. State değişkeni okunup stack'e kopyalanıyor.
         address _vaultAddress = wrapperVaultAddress;
         if (_vaultAddress == address(0)) revert VaultAddressNotSet();
 
@@ -82,12 +90,13 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         _wrapperIdCounter++;
         uint256 newWrapperId = _wrapperIdCounter;
 
+        // Wrapper içeriğini kaydet (Bu kısım değişmedi)
         for (uint256 i = 0; i < numAssets; i++) {
             wrapperContents[newWrapperId].push(assetsToWrap[i]);
         }
 
-        // --- Etkileşim (Vault ile) ---
-        IAssetWrapperVault vault = IAssetWrapperVault(_vaultAddress); // Stack'teki değişken kullanılıyor
+        // --- Etkileşim (Vault ile - Bu kısım değişmedi) ---
+        IAssetWrapperVault vault = IAssetWrapperVault(_vaultAddress);
         for (uint256 i = 0; i < numAssets; i++) {
             Asset memory asset = assetsToWrap[i];
             if (asset.contractAddress == address(0)) revert ZeroAssetAddress();
@@ -98,6 +107,10 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
 
         // --- Son İşlemler ---
         _safeMint(msg.sender, newWrapperId);
+
+        // <<< YENİ EKLENEN SATIR: Mint sonrası otomatik olarak sabit URI'yi ayarla >>>
+        _setTokenURI(newWrapperId, FIXED_TOKEN_URI);
+
         emit AssetsWrapped(newWrapperId, msg.sender, assetsToWrap);
         return newWrapperId;
     }
@@ -108,20 +121,21 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         if (tokenOwner != msg.sender && !isApprovedForAll(tokenOwner, msg.sender) && getApproved(wrapperId) != msg.sender) {
             revert NotOwnerOrApproved();
         }
-        // DÜZELTME: 'memory' kaldırıldı. State değişkeni okunup stack'e kopyalanıyor.
         address _vaultAddress = wrapperVaultAddress;
         if (_vaultAddress == address(0)) revert VaultAddressNotSet();
 
         Asset[] memory assetsToUnlock = wrapperContents[wrapperId];
         uint256 numAssets = assetsToUnlock.length;
         if (numAssets == 0) revert WrapperIsEmptyOrNotFound();
-        // Opsiyonel: if (numAssets > MAX_ASSETS_PER_TX) revert MaxAssetsExceeded();
 
         // --- Effects (State Değişiklikleri) ---
         delete wrapperContents[wrapperId];
+        // <<< ÖNEMLİ: _burn çağırmadan önce URI'yi de silmek iyi bir pratiktir (isteğe bağlı) >>>
+        // _deleteTokenURI(wrapperId); // ERC721URIStorage'dan gelen internal fonksiyon
         _burn(wrapperId);
 
-        // --- Interaction (Vault ile) ---
+
+        // --- Interaction (Vault ile - Bu kısım değişmedi) ---
         IAssetWrapperVault vault = IAssetWrapperVault(_vaultAddress);
         for (uint256 i = 0; i < numAssets; i++) {
             Asset memory asset = assetsToUnlock[i];
@@ -148,10 +162,17 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         emit WrapperVaultAddressSet(newWrapperVaultAddress);
     }
 
+    // <<< DEĞİŞİKLİK: Bu fonksiyon artık gerekli değil ama istersen bırakabilirsin. >>>
+    // <<< Eğer bırakırsan, sahibi mint sonrası bile URI'yi değiştirebilir. >>>
+    // <<< İstersen bu fonksiyonu silebilir veya yorum satırı yapabilirsin. >>>
+    /*
     function setTokenURI(uint256 tokenId, string memory newTokenURI) external onlyOwner {
-         _requireOwned(tokenId);
+         _requireOwned(tokenId); // Bu fonksiyon ERC721'de private, yerine ownerOf kullanın
+         require(ownerOf(tokenId) != address(0), "ERC721: invalid token ID"); // Token var mı kontrolü
          _setTokenURI(tokenId, newTokenURI);
     }
+    */
+
 
     function withdrawFees() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
@@ -167,13 +188,20 @@ contract AssetWrapperNFT is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         emit FeesWithdrawn(owner(), balance);
     }
 
+    // --- Override Functions ---
+
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
+    // tokenURI fonksiyonu ERC721URIStorage'dan miras alındığı için genellikle override etmeye gerek kalmaz.
+    // Ancak burada zaten override edilmiş ve sadece super çağrılıyor, bu haliyle kalabilir.
     function tokenURI(uint256 tokenId) public view virtual override(ERC721, ERC721URIStorage) returns (string memory) {
-        _requireOwned(tokenId);
+        // _requireOwned(tokenId); // Bu fonksiyon private, bunun yerine aşağıdaki kontrol daha iyi
+        require(ownerOf(tokenId) != address(0), "ERC721URIStorage: URI query for nonexistent token"); // Token var mı kontrolü
         string memory _tokenURI = super.tokenURI(tokenId);
+         // Opsiyonel: Eğer URI hiç set edilmemişse (örn. eski setTokenURI silinirse ve sabit URI de boşsa) hata vermek için
+         // require(bytes(_tokenURI).length > 0, "ERC721URIStorage: URI not set");
         return _tokenURI;
     }
 }

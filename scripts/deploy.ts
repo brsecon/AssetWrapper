@@ -23,8 +23,8 @@ async function main() {
   // 3. AssetWrapperNFT Kontratını Dağıt
   console.log("AssetWrapperNFT dağıtılıyor...");
   const NftFactory = await ethers.getContractFactory("AssetWrapperNFT");
-  const nftName = "Asset Wrapper Token";
-  const nftSymbol = "AWT";
+  const nftName = "Asset Wrapper Jeton";
+  const nftSymbol = "AWJ";
   const nft = await NftFactory.deploy(
     nftName,
     nftSymbol,
