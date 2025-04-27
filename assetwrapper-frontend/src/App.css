@@ -6,7 +6,7 @@
   justify-content: space-between;
   align-items: center;
   padding-bottom: var(--spacing-lg);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border);
   margin-bottom: var(--spacing-xl);
 }
 
@@ -21,14 +21,13 @@
 .app-footer {
   margin-top: var(--spacing-xl);
   padding-top: var(--spacing-lg);
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--color-border);
   text-align: center;
   color: var(--color-text-secondary);
   font-size: 0.9em;
 }
 
 /* Form Elemanları Stilleri */
-/* ... (Buton, input, select stilleri öncekiyle aynı) ... */
 button {
   display: inline-flex;
   align-items: center;
@@ -44,7 +43,7 @@ button {
   cursor: pointer;
   transition: var(--transition-base);
   background-color: var(--color-primary);
-  color: white;
+  color: var(--color-button-text); /* Değişken kullanıldı */
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
 }
 
@@ -65,6 +64,7 @@ button:disabled {
   background-color: var(--color-bg-secondary);
   color: var(--color-text-secondary);
   box-shadow: none;
+  border: 1px solid var(--color-border); /* Devre dışı buton için sınır belirginleştirildi */
 }
 
 input[type="text"],
@@ -77,8 +77,8 @@ select {
   font-size: 1em;
   line-height: 1.5;
   color: var(--color-text);
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-secondary); /* Açık tema için beyaz */
+  border: 1px solid var(--color-border); /* Açık tema için gri sınır */
   border-radius: var(--border-radius);
   transition: var(--transition-base);
 }
@@ -88,12 +88,13 @@ input[type="number"]:focus,
 select:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.5);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 40%, transparent); /* Odak efekti ana renkle uyumlu hale getirildi */
 }
 
 select {
   appearance: none;
-  background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%239CA3AF%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.293%207.293a1%201%200%20011.414%200L10%2010.586l3.293-3.293a1%201%200%20111.414%201.414l-4%204a1%201%200%2001-1.414%200l-4-4a1%201%200%20010-1.414z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E');
+  /* SVG rengi güncellendi (daha koyu gri) */
+  background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%236B7280%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.293%207.293a1%201%200%20011.414%200L10%2010.586l3.293-3.293a1%201%200%20111.414%201.414l-4%204a1%201%200%2001-1.414%200l-4-4a1%201%200%20010-1.414z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E');
   background-repeat: no-repeat;
   background-position: right 0.7em top 50%;
   background-size: 1.25em;
@@ -150,19 +151,18 @@ select {
   margin-top: var(--spacing-md);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
-  background-color: var(--color-bg-secondary);
+  background-color: var(--color-bg-secondary); /* Açık tema için beyaz */
   max-height: 300px;
   min-height: 100px; /* Liste boşken bile yer kaplasın */
   overflow-y: auto;
   scrollbar-gutter: stable; /* Kaydırma çubuğu için yer ayır */
 }
-/* ... (Liste içeriği stilleri .asset-list li, .asset-logo vs. aynı) ... */
 .asset-list li {
   display: flex;
   align-items: center;
   padding: var(--spacing-sm) var(--spacing-md);
   margin-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border); /* Sınır rengi güncellendi */
   transition: background-color 0.15s ease-in-out;
 }
 
@@ -177,7 +177,8 @@ select {
   border-radius: 50%;
   margin-right: var(--spacing-md);
   flex-shrink: 0;
-  background-color: var(--color-bg);
+  background-color: var(--color-bg); /* Logo yoksa açık gri arka plan */
+  border: 1px solid var(--color-border); /* İsteğe bağlı: Logolar için hafif sınır */
 }
 
 .asset-list .asset-info {
@@ -192,12 +193,12 @@ select {
 .asset-list .asset-info .asset-name {
   font-weight: 500;
   display: block;
-  color: var(--color-text);
+  color: var(--color-text); /* Metin rengi güncellendi */
 }
 
 .asset-list .asset-info .asset-details {
   font-size: 0.9em;
-  color: var(--color-text-secondary);
+  color: var(--color-text-secondary); /* İkincil metin rengi güncellendi */
   display: block;
 }
 
@@ -212,7 +213,7 @@ select {
 }
 
 .asset-list .asset-actions button:hover {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: color-mix(in srgb, var(--color-error) 10%, transparent); /* Hata renginin açık tonu */
   color: var(--color-error);
 }
 
@@ -241,24 +242,24 @@ select {
 
 /* Renkler için border-color'ı visible olduğunda set et */
 .message-area.success.visible {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: color-mix(in srgb, var(--color-success) 10%, transparent); /* Açık yeşil */
   border-color: var(--color-success);
-  color: var(--color-success);
+  color: color-mix(in srgb, var(--color-success) 85%, black); /* Koyu yeşil metin */
 }
 
 .message-area.error.visible {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: color-mix(in srgb, var(--color-error) 10%, transparent); /* Açık kırmızı */
   border-color: var(--color-error);
-  color: var(--color-error);
+  color: color-mix(in srgb, var(--color-error) 85%, black); /* Koyu kırmızı metin */
 }
 
 .message-area.info.visible {
-  background-color: rgba(59, 130, 246, 0.1);
+  background-color: color-mix(in srgb, var(--color-info) 10%, transparent); /* Açık mavi */
   border-color: var(--color-info);
-  color: var(--color-info);
+  color: color-mix(in srgb, var(--color-info) 85%, black); /* Koyu mavi metin */
 }
 
-/* İçerik stilleri (renkler visible class'ı üzerinden yönetiliyor) */
+/* İçerik stilleri */
 .message-area small {
   display: block;
 }
@@ -266,9 +267,10 @@ select {
   font-weight: bold;
   text-decoration: underline;
 }
-.message-area.success a { color: var(--color-success); }
-.message-area.error a { color: var(--color-error); }
-.message-area.info a { color: var(--color-info); }
+/* Bağlantı renkleri ana mesaj rengiyle uyumlu hale getirildi */
+.message-area.success a { color: color-mix(in srgb, var(--color-success) 70%, black); }
+.message-area.error a { color: color-mix(in srgb, var(--color-error) 70%, black); }
+.message-area.info a { color: color-mix(in srgb, var(--color-info) 70%, black); }
 
 
 /* Ayırıcı Çizgi */
@@ -279,7 +281,6 @@ hr.section-divider {
 }
 
 /* Component Spesifik Boşluklar vs. */
-/* ... (Öncekiyle aynı) ... */
 .unwrap-section, .wrap-form-section, .profile-page { }
 .section-title { margin-bottom: var(--spacing-lg); }
 .action-button-group { margin-top: var(--spacing-lg); }
@@ -288,9 +289,10 @@ hr.section-divider {
 .loading-spinner { margin-left: var(--spacing-sm); display: inline-block; }
 
 /* Profildeki Unwrap Butonu Stili */
-.nft-card-unwrap-button { /* Butona bu class verilmeli */
+.nft-card-unwrap-button {
     background-color: var(--color-primary);
     width: 100%;
+    color: var(--color-button-text); /* Metin rengi eklendi */
 }
 .nft-card-unwrap-button:hover {
     background-color: var(--color-primary-hover);
@@ -300,4 +302,5 @@ hr.section-divider {
     color: var(--color-text-secondary);
     opacity: 0.6;
     cursor: not-allowed;
+    border: 1px solid var(--color-border); /* Devre dışı buton için sınır */
 }
