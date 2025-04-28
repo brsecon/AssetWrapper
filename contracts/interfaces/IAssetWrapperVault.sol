@@ -27,4 +27,12 @@ interface IAssetWrapperVault {
      * @return success Boolean indicating if the unlock operation was successful.
      */
     function unlockAsset(address recipient, uint256 wrapperId, address assetContract, uint256 idOrAmount, bool isNFT) external returns (bool success);
+
+    /**
+     * @notice Returns the locked ERC20 balance for a specific wrapper and asset.
+     * @param wrapperId The ID of the wrapper.
+     * @param assetContract The address of the ERC20 asset contract.
+     * @return The amount of the specified ERC20 token locked for the given wrapperId.
+     */
+    function lockedERC20Balance(uint256 wrapperId, address assetContract) external view returns (uint256);
 }
