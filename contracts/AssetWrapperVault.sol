@@ -93,6 +93,8 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
             if (!IERC165(assetContract).supportsInterface(type(IERC721).interfaceId)) {
                  revert AssetNotERC721();
             }
+            // AUDIT 3.1 NOTE: This check was flagged as High Risk, needing review for multi-wrapper scenarios.
+            // The logic checks if locked by *this* wrapper OR locked *anywhere*. Seems intended.
             if (isNFTLocked[wrapperId][assetContract][tokenId] || isTokenLockedAnywhere[assetContract][tokenId]) {
                 revert NftAlreadyLocked();
             }
@@ -168,12 +170,14 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
             if (amountToUnlock == 0) revert NonPositiveAmount();
             uint256 currentLocked = _lockedERC20Balance[wrapperId][assetContract];
             if (currentLocked < amountToUnlock) revert InsufficientLockedBalance();
+
             _lockedERC20Balance[wrapperId][assetContract] = currentLocked - amountToUnlock;
-            if (totalLockedERC20[assetContract] >= amountToUnlock) {
-                 totalLockedERC20[assetContract] -= amountToUnlock;
-            } else {
-                 totalLockedERC20[assetContract] = 0;
-            }
+
+            // --- AUDIT 2.1 FIX ---
+            // Replace the original if/else block with direct subtraction
+            totalLockedERC20[assetContract] -= amountToUnlock;
+            // --- FIX END ---
+
             IERC20(assetContract).safeTransfer(recipient, amountToUnlock);
             emit AssetUnlocked(wrapperId, recipient, assetContract, amountToUnlock, false);
         }
