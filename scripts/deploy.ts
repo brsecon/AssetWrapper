@@ -13,10 +13,8 @@ async function main() {
   console.log("AssetWrapperVault dağıtılıyor...");
   const VaultFactory = await ethers.getContractFactory("AssetWrapperVault");
   const vault = await VaultFactory.deploy(deployer.address);
-  // --- DÜZELTME: .deployed() yerine .waitForDeployment() kullanıldı ---
   await vault.waitForDeployment();
-  // --- Düzeltme Sonu ---
-  const vaultAddress = await vault.getAddress(); // Adresi almak için getAddress() kullan
+  const vaultAddress = await vault.getAddress();
   console.log(`AssetWrapperVault dağıtıldı. Adres: ${vaultAddress}`);
 
 
@@ -25,16 +23,20 @@ async function main() {
   const NftFactory = await ethers.getContractFactory("AssetWrapperNFT");
   const nftName = "Asset Wrapper Jeton";
   const nftSymbol = "AWJ";
+  // --- YENİ: Başlangıç ücretini belirle (0.0005 ETH Wei cinsinden) ---
+  const initialFeeInWei = ethers.parseEther("0.0005"); // 500000000000000 Wei
+  console.log(`AssetWrapperNFT için başlangıç ücreti: ${ethers.formatEther(initialFeeInWei)} ETH (${initialFeeInWei} Wei)`);
+  // --- Değişiklik Sonu ---
+
   const nft = await NftFactory.deploy(
     nftName,
     nftSymbol,
     deployer.address,
-    vaultAddress // Yukarıda alınan vault adresi kullanıldı
+    vaultAddress, // Yukarıda alınan vault adresi kullanıldı
+    initialFeeInWei // <<< YENİ: Başlangıç ücreti parametresi eklendi
   );
-  // --- DÜZELTME: .deployed() yerine .waitForDeployment() kullanıldı ---
   await nft.waitForDeployment();
-  // --- Düzeltme Sonu ---
-  const nftAddress = await nft.getAddress(); // Adresi almak için getAddress() kullan
+  const nftAddress = await nft.getAddress();
   console.log(
     `AssetWrapperNFT (${nftSymbol}) dağıtıldı. Adres: ${nftAddress}`
   );
@@ -42,8 +44,7 @@ async function main() {
 
   // 4. AssetWrapperVault'u NFT Adresiyle Yapılandır
   console.log("AssetWrapperVault, NFT adresiyle yapılandırılıyor...");
-  // Vault kontratını tekrar yüklemeye gerek yok, yukarıdaki vault nesnesini kullanabiliriz
-  const tx = await vault.connect(deployer).setWrapperNftAddress(nftAddress); // Yukarıda alınan nft adresi kullanıldı
+  const tx = await vault.connect(deployer).setWrapperNftAddress(nftAddress);
   await tx.wait(); // Yapılandırma işleminin tamamlanmasını bekle
   console.log("AssetWrapperVault başarıyla yapılandırıldı.");
   console.log(`Artık Vault sadece ${nftAddress} adresinden gelen çağrıları kabul edecek.`);
@@ -54,6 +55,8 @@ async function main() {
   console.log(`Deployer Adresi:      ${deployer.address}`);
   console.log(`AssetWrapperVault:    ${vaultAddress}`);
   console.log(`AssetWrapperNFT:      ${nftAddress}`);
+  const currentFee = await nft.wrapperFee(); // Dağıtım sonrası ücreti oku
+  console.log(`Mevcut Wrapper Ücreti: ${ethers.formatEther(currentFee)} ETH (${currentFee} Wei)`);
   console.log("----------------------");
 
 }

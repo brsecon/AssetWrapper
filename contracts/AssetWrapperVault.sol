@@ -28,7 +28,9 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
     address public wrapperNftContractAddress;
 
     mapping(uint256 => mapping(address => mapping(uint256 => bool))) public isNFTLocked;
-    mapping(uint256 => mapping(address => uint256)) public lockedERC20Balance;
+    // --- DÜZELTME: State değişkeni yeniden adlandırıldı ve internal yapıldı ---
+    mapping(uint256 => mapping(address => uint256)) internal _lockedERC20Balance; // lockedERC20Balance -> _lockedERC20Balance
+    // --- DÜZELTME SONU ---
     mapping(address => mapping(uint256 => bool)) public isTokenLockedAnywhere;
     mapping(address => uint256) public totalLockedERC20;
     mapping(address => mapping(uint256 => uint256)) private _expectedTokenIdMarker;
@@ -62,10 +64,10 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
         bool isNFT
     )
         external
-        override // <<< DEĞİŞİKLİK: override eklendi (arayüz değiştiği için)
+        override
         onlyWrapperNFT
         nonReentrant
-        returns (bool success, uint256 actualIdOrAmount) // <<< DEĞİŞİKLİK: Dönüş değeri imzası değişti
+        returns (bool success, uint256 actualIdOrAmount)
     {
         if (user == address(0)) revert ZeroUserAddress();
         if (assetContract == address(0)) revert ZeroAssetContractAddress();
@@ -82,7 +84,7 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
             isNFTLocked[wrapperId][assetContract][tokenId] = true;
             isTokenLockedAnywhere[assetContract][tokenId] = true;
             emit AssetLocked(wrapperId, user, assetContract, tokenId, true);
-            return (true, tokenId); // <<< DEĞİŞİKLİK: Başarı ve tokenId döndürülüyor
+            return (true, tokenId);
         } else {
             uint256 amountSpecified = idOrAmount; // User specified amount
             if (amountSpecified == 0) revert NonPositiveAmount(); // Check specified amount first
@@ -97,10 +99,12 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
             // Even if the transfer succeeds, if the actual received amount is zero (e.g., 100% fee), treat as failure
             if (actualReceived == 0) revert NonPositiveAmount();
 
-            lockedERC20Balance[wrapperId][assetContract] += actualReceived;
+            // --- DÜZELTME: State değişkeni kullanımı güncellendi ---
+            _lockedERC20Balance[wrapperId][assetContract] += actualReceived; // Değişken adı güncellendi
+            // --- DÜZELTME SONU ---
             totalLockedERC20[assetContract] += actualReceived;
             emit AssetLocked(wrapperId, user, assetContract, actualReceived, false);
-            return (true, actualReceived); // <<< DEĞİŞİKLİK: Başarı ve GERÇEKTE ALINAN miktar döndürülüyor
+            return (true, actualReceived);
         }
         // Not reachable due to return statements inside if/else, but needed for compiler if structure was different
         // return (false, 0);
@@ -117,10 +121,10 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
         bool isNFT
     )
         external
-        override // <<< DEĞİŞİKLİK: override eklendi (arayüz değiştiği için)
+        override
         onlyWrapperNFT
         nonReentrant
-        returns (bool success) // Dönüş değeri aynı kaldı
+        returns (bool success)
     {
         if (recipient == address(0)) revert ZeroRecipientAddress();
         if (assetContract == address(0)) revert ZeroAssetContractAddress();
@@ -137,10 +141,14 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
         } else {
             uint256 amountToUnlock = idOrAmount;
             if (amountToUnlock == 0) revert NonPositiveAmount();
-            uint256 currentLocked = lockedERC20Balance[wrapperId][assetContract];
+            // --- DÜZELTME: State değişkeni kullanımı güncellendi ---
+            uint256 currentLocked = _lockedERC20Balance[wrapperId][assetContract]; // Değişken adı güncellendi
+            // --- DÜZELTME SONU ---
             if (currentLocked < amountToUnlock) revert InsufficientLockedBalance();
             // --- Effects ---
-            lockedERC20Balance[wrapperId][assetContract] = currentLocked - amountToUnlock;
+            // --- DÜZELTME: State değişkeni kullanımı güncellendi ---
+            _lockedERC20Balance[wrapperId][assetContract] = currentLocked - amountToUnlock; // Değişken adı güncellendi
+            // --- DÜZELTME SONU ---
             totalLockedERC20[assetContract] -= amountToUnlock; // Update total locked as well
              // --- Interaction ---
             IERC20(assetContract).safeTransfer(recipient, amountToUnlock);
@@ -201,7 +209,9 @@ contract AssetWrapperVault is Ownable, ReentrancyGuard, IAssetWrapperVault, IERC
       * @inheritdoc IAssetWrapperVault
       */
     function lockedERC20Balance(uint256 wrapperId, address assetContract) external view override returns (uint256) {
-         return lockedERC20Balance[wrapperId][assetContract];
+         // --- DÜZELTME: State değişkeni kullanımı güncellendi ---
+         return _lockedERC20Balance[wrapperId][assetContract]; // Değişken adı güncellendi
+         // --- DÜZELTME SONU ---
     }
 
     // Internal helper - not strictly needed if only used once, but can clarify intent
