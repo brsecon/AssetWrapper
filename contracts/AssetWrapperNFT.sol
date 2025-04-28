@@ -38,8 +38,8 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
     // Lowered from 50 to 25 as a safer default based on audit feedback.
     // Ensure unwrapping this many assets does not exceed gas limits on the target network through testing.
     // Consider implementing partial unwrapping for greater flexibility and gas management.
-    uint256 public constant MAX_ASSETS_PER_TX = 25;
-    uint256 public constant FEE_CHANGE_DELAY = 2 days; // Timelock delay for fee changes
+    uint256 public constant MAX_ASSETS_PER_TX = 10;
+    uint256 public constant FEE_CHANGE_DELAY = 1 days; // Timelock delay for fee changes
 
     // --- State Variables ---
     uint256 private _wrapperIdCounter;

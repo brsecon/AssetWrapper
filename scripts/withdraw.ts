@@ -4,7 +4,7 @@ import "dotenv/config"; // Ortam değişkenlerini yüklemek için
 
 async function main() {
   // AUDIT FINDING 6 FIX: Load contract address from environment variable
-  const contractAddress = process.env.NFT_CONTRACT_ADDRESS;
+  const contractAddress = "0x695d2738215e1fb58afCA7cc0e5567719CA3695F";
   if (!contractAddress) {
     console.error("Error: NFT_CONTRACT_ADDRESS environment variable not set.");
     process.exit(1);

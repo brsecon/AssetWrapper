@@ -23,9 +23,12 @@ async function main() {
   const NftFactory = await ethers.getContractFactory("AssetWrapperNFT");
   const nftName = "Asset Wrapper Jeton";
   const nftSymbol = "AWJ";
-  // --- YENİ: Başlangıç ücretini belirle (0.0005 ETH Wei cinsinden) ---
+  // Başlangıç ücretini belirle (0.0005 ETH Wei cinsinden)
   const initialFeeInWei = ethers.parseEther("0.0005"); // 500000000000000 Wei
   console.log(`AssetWrapperNFT için başlangıç ücreti: ${ethers.formatEther(initialFeeInWei)} ETH (${initialFeeInWei} Wei)`);
+  // --- YENİ: Başlangıç Base Token URI'sini belirle ---
+  const initialBaseTokenURI = "ipfs://bafkreif6cgi7ijkg47vbp7kmcybejyvvsdt3rtoky4tkifurvtwolyzrjm/"; // <<< EKLENDİ
+  console.log(`AssetWrapperNFT için başlangıç Base URI: ${initialBaseTokenURI}`);
   // --- Değişiklik Sonu ---
 
   const nft = await NftFactory.deploy(
@@ -33,7 +36,8 @@ async function main() {
     nftSymbol,
     deployer.address,
     vaultAddress, // Yukarıda alınan vault adresi kullanıldı
-    initialFeeInWei // <<< YENİ: Başlangıç ücreti parametresi eklendi
+    initialFeeInWei,
+    initialBaseTokenURI // <<< YENİ: Başlangıç base URI parametresi eklendi
   );
   await nft.waitForDeployment();
   const nftAddress = await nft.getAddress();
@@ -52,11 +56,13 @@ async function main() {
 
   // --- Özet ---
   console.log("\n--- DAĞITIM ÖZETİ ---");
-  console.log(`Deployer Adresi:      ${deployer.address}`);
-  console.log(`AssetWrapperVault:    ${vaultAddress}`);
-  console.log(`AssetWrapperNFT:      ${nftAddress}`);
+  console.log(`Deployer Adresi:       ${deployer.address}`);
+  console.log(`AssetWrapperVault:     ${vaultAddress}`);
+  console.log(`AssetWrapperNFT:       ${nftAddress}`);
   const currentFee = await nft.wrapperFee(); // Dağıtım sonrası ücreti oku
+  const currentBaseURI = await nft.baseTokenURI(); // Dağıtım sonrası URI'yi oku
   console.log(`Mevcut Wrapper Ücreti: ${ethers.formatEther(currentFee)} ETH (${currentFee} Wei)`);
+  console.log(`Mevcut Base Token URI: ${currentBaseURI}`);
   console.log("----------------------");
 
 }
