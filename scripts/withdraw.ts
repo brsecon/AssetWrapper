@@ -1,40 +1,78 @@
-// scripts/withdraw.js
-const hre = require("hardhat");
-
-// BURAYA DEPLOY EDİLMİŞ KONTATIN ADRESİNİ YAPIŞTIR
-const CONTRACT_ADDRESS = "0xb97D899Dea869e5d5a435D8ae0E1C49f1865bc8c";
+// scripts/withdraw.ts
+import { ethers } from "hardhat";
+import "dotenv/config"; // Ortam değişkenlerini yüklemek için
 
 async function main() {
-  // Kontrat sahibi olan cüzdanı al (hardhat.config.js'de tanımlı olmalı)
-  const [owner] = await hre.ethers.getSigners();
+  // AUDIT FINDING 6 FIX: Load contract address from environment variable
+  const contractAddress = process.env.NFT_CONTRACT_ADDRESS;
+  if (!contractAddress) {
+    console.error("Error: NFT_CONTRACT_ADDRESS environment variable not set.");
+    process.exit(1);
+  }
+  console.log(`Interacting with AssetWrapperNFT at: ${contractAddress}`);
+
+
+  // Kontrat sahibi olan cüzdanı al (hardhat.config.ts'de tanımlı olmalı)
+  const [owner] = await ethers.getSigners();
   console.log(`Attempting to withdraw fees using account: ${owner.address}`);
 
   // Kontrat ABI'sini ve adresi kullanarak kontrat instance'ını al
-  const AssetWrapperNFT = await hre.ethers.getContractFactory("AssetWrapperNFT");
-  const contract = AssetWrapperNFT.attach(CONTRACT_ADDRESS); // attach kullanılır
+  const AssetWrapperNFT = await ethers.getContractFactory("AssetWrapperNFT");
+  // attach kullanarak mevcut kontrata bağlan
+  const contract = AssetWrapperNFT.attach(contractAddress);
 
   // Kontratın mevcut sahibini kontrol et (isteğe bağlı ama önerilir)
-  const currentOwner = await contract.owner();
-  if (owner.address.toLowerCase() !== currentOwner.toLowerCase()) {
-      console.error(`Error: Signer (<span class="math-inline">\{owner\.address\}\) is not the contract owner \(</span>{currentOwner}).`);
+  try {
+      const currentOwner = await contract.owner();
+      if (owner.address.toLowerCase() !== currentOwner.toLowerCase()) {
+          console.error(`Error: Signer (${owner.address}) is not the contract owner (${currentOwner}).`);
+          process.exit(1);
+      }
+      console.log(`Signer confirmed as contract owner.`);
+  } catch (error) {
+      console.error("Error fetching contract owner. Is the address correct and contract deployed?", error);
       process.exit(1);
   }
 
-  console.log(`Current contract balance: ${hre.ethers.formatEther(await hre.ethers.provider.getBalance(CONTRACT_ADDRESS))} ETH`);
+
+  const balanceBefore = await ethers.provider.getBalance(contractAddress);
+  console.log(`Current contract balance: ${ethers.formatEther(balanceBefore)} ETH`);
+
+  if (balanceBefore === 0n) { // Use BigInt literal
+      console.log("Contract balance is zero. No fees to withdraw.");
+      process.exit(0);
+  }
 
   console.log("Calling withdrawFees()...");
-  const tx = await contract.connect(owner).withdrawFees(); // Sahip cüzdanıyla bağlanarak çağır
+  try {
+    const tx = await contract.connect(owner).withdrawFees(); // Sahip cüzdanıyla bağlanarak çağır
 
-  console.log(`Transaction hash: ${tx.hash}`);
-  console.log("Waiting for transaction confirmation...");
+    console.log(`Transaction hash: ${tx.hash}`);
+    console.log("Waiting for transaction confirmation...");
 
-  const receipt = await tx.wait(); // İşlemin onaylanmasını bekle
+    const receipt = await tx.wait(); // İşlemin onaylanmasını bekle
 
-  console.log(`Fees withdrawn successfully! Block number: ${receipt.blockNumber}`);
-  console.log(`New contract balance: ${hre.ethers.formatEther(await hre.ethers.provider.getBalance(CONTRACT_ADDRESS))} ETH`);
+    console.log(`Fees withdrawn successfully! Block number: ${receipt?.blockNumber}`);
+    const balanceAfter = await ethers.provider.getBalance(contractAddress);
+    console.log(`New contract balance: ${ethers.formatEther(balanceAfter)} ETH`);
+
+  } catch (error: any) {
+      console.error("Error during fee withdrawal:", error.message);
+      // Attempt to decode custom error
+      // Note: This requires ABI knowledge and might be complex to generalize fully
+      if (error.data) {
+          try {
+            const decodedError = contract.interface.parseError(error.data);
+            console.error(`Decoded Error: ${decodedError?.name} (${decodedError?.args})`);
+          } catch (decodeError) {
+            console.error("Could not decode error data:", error.data);
+          }
+      }
+      process.exit(1);
+  }
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error("Unhandled error:", error);
   process.exitCode = 1;
 });
