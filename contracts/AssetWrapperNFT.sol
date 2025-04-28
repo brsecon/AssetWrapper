@@ -10,7 +10,7 @@ import "./interfaces/IAssetWrapperVault.sol";
 /**
  * @title AssetWrapperNFT - ERC721 Token representing ownership of wrapped assets.
  * @dev Manages the lifecycle of wrapped assets and interacts with a Vault contract.
- * Allows the owner to set a dynamic wrapping fee.
+ * Allows the owner to set a dynamic wrapping fee via a timelock mechanism.
  * Metadata URI is generated dynamically based on base URI and token ID.
  */
 contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
@@ -30,17 +30,26 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
     error FeeWithdrawalFailed();
     error MaxAssetsExceeded();
     error ZeroBaseURI();
+    error FeeChangeNotReady(); // Timelock error
+    error NoFeeChangePending(); // Timelock error
 
     // --- Constants ---
-    // AUDIT FINDING 5 NOTE: MAX_ASSETS_PER_TX determines the max assets in a wrapper.
-    // Ensure unwrapping this many assets does not exceed gas limits on the target network.
-    uint256 public constant MAX_ASSETS_PER_TX = 50;
+    // AUDIT FINDING (Gas Limit Risks - Medium Risk): MAX_ASSETS_PER_TX determines the max assets in a wrapper.
+    // Lowered from 50 to 25 as a safer default based on audit feedback.
+    // Ensure unwrapping this many assets does not exceed gas limits on the target network through testing.
+    // Consider implementing partial unwrapping for greater flexibility and gas management.
+    uint256 public constant MAX_ASSETS_PER_TX = 25;
+    uint256 public constant FEE_CHANGE_DELAY = 2 days; // Timelock delay for fee changes
 
     // --- State Variables ---
     uint256 private _wrapperIdCounter;
     address public wrapperVaultAddress;
     uint256 public wrapperFee;
     string public baseTokenURI;
+
+    // Timelock state variables for fee changes
+    uint256 public pendingWrapperFee;
+    uint256 public feeChangeReadyTimestamp; // Timestamp when the new fee can be applied
 
     struct Asset {
         address contractAddress;
@@ -57,6 +66,8 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
     event FeesWithdrawn(address indexed owner, uint256 amount);
     event WrapperFeeUpdated(uint256 oldFee, uint256 newFee);
     event BaseTokenURISet(string oldBaseURI, string newBaseURI);
+    event WrapperFeeChangeProposed(uint256 newFee, uint256 effectiveTimestamp); // Timelock event
+    event WrapperFeeChangeApplied(uint256 oldFee, uint256 newFee); // Timelock event
 
     // --- Constructor ---
     constructor(
@@ -65,16 +76,18 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
         address initialOwner,
         address _wrapperVaultAddress,
         uint256 initialWrapperFee,
-        string memory initialBaseTokenURI // SLITHER FIX: Parameter name updated (was _initialBaseTokenURI)
+        string memory initialBaseTokenURI
     ) ERC721(name_, symbol_) Ownable(initialOwner) {
         if (_wrapperVaultAddress == address(0)) revert ZeroVaultAddress();
         if (bytes(initialBaseTokenURI).length == 0) revert ZeroBaseURI();
 
         wrapperVaultAddress = _wrapperVaultAddress;
-        wrapperFee = initialWrapperFee;
+        wrapperFee = initialWrapperFee; // Set initial fee directly
         baseTokenURI = initialBaseTokenURI;
 
         emit WrapperVaultAddressSet(_wrapperVaultAddress);
+        // Emit initial fee as an update event for clarity
+        emit WrapperFeeUpdated(0, initialWrapperFee);
         emit BaseTokenURISet("", initialBaseTokenURI);
     }
 
@@ -83,10 +96,8 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
     /**
      * @notice Wraps multiple assets into a new NFT. Requires payment of the current wrapperFee.
      * @dev Calls lockAsset on the associated Vault contract for each asset inside a loop.
-     * SLITHER NOTE (calls-loop): External calls in loop are necessary for batch functionality. Monitor gas usage.
-     * SLITHER NOTE (reentrancy-*): Pattern `Interaction -> State Write` exists (vault.lockAsset -> wrapperContents.push).
-     * Mitigated by `nonReentrant` guard on this function.
-     * AUDIT FINDING 4 NOTE: Fee is checked at execution time. Consider timelocks for fee changes if needed.
+     * Potential gas cost scales with the number of assets (MAX_ASSETS_PER_TX limit applies).
+     * Uses nonReentrant guard to prevent reentrancy during vault interactions.
      * @param assetsToWrap Array of assets to be wrapped.
      * @return newWrapperId The ID of the newly minted NFT.
      */
@@ -121,7 +132,7 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
 
             Asset memory storedAsset = Asset({
                 contractAddress: inputAsset.contractAddress,
-                idOrAmount: actualIdOrAmount,
+                idOrAmount: actualIdOrAmount, // Store the actual amount locked (handles fee-on-transfer)
                 isNFT: inputAsset.isNFT
             });
 
@@ -138,11 +149,13 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
     /**
      * @notice Unwraps all assets associated with a given wrapperId NFT and burns the NFT.
      * @dev Calls unlockAsset/lockedERC20Balance on the Vault contract inside a loop.
-     * SLITHER NOTE (calls-loop): External calls in loop are necessary for batch functionality. Monitor gas usage.
+     * Potential gas cost scales with the number of assets (MAX_ASSETS_PER_TX limit applies).
+     * Follows Checks-Effects-Interactions pattern: NFT state changed *before* external calls.
      * @param wrapperId The ID of the NFT to unwrap.
      */
     function unwrapAssets(uint256 wrapperId) external nonReentrant {
         address tokenOwner = ownerOf(wrapperId);
+        // Check ownership or approval
         if (tokenOwner != msg.sender && !isApprovedForAll(tokenOwner, msg.sender) && getApproved(wrapperId) != msg.sender) {
             revert NotOwnerOrApproved();
         }
@@ -153,9 +166,11 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
         uint256 numAssets = assetsToUnlock.length;
         if (numAssets == 0) revert WrapperIsEmptyOrNotFound();
 
+        // --- Effects (before interactions) ---
         delete wrapperContents[wrapperId];
         _burn(wrapperId);
 
+        // --- Interactions ---
         IAssetWrapperVault vault = IAssetWrapperVault(_vaultAddress);
         for (uint256 i = 0; i < numAssets; i++) {
             Asset memory asset = assetsToUnlock[i];
@@ -164,12 +179,13 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
                 // External call inside loop
                 success = vault.unlockAsset(msg.sender, wrapperId, asset.contractAddress, asset.idOrAmount, true);
             } else {
-                // External call inside loop
+                // External call inside loop (view call)
                 uint256 currentBalance = vault.lockedERC20Balance(wrapperId, asset.contractAddress);
                 if (currentBalance > 0) {
-                    // External call inside loop
+                    // External call inside loop (state changing call)
                     success = vault.unlockAsset(msg.sender, wrapperId, asset.contractAddress, currentBalance, false);
                 } else {
+                    // Nothing to unlock for this ERC20 (already 0 or previously handled)
                     success = true;
                 }
             }
@@ -191,39 +207,56 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates the fee required for the wrapAssets function.
-     * @dev Can only be called by the owner. Fee is set in Wei.
-     * Consider adding a timelock for production to mitigate front-running (Audit Finding 4).
-     * @param newFee The new fee amount in Wei. SLITHER FIX: Parameter name updated (was _newFee).
+     * @notice Proposes a new fee for the wrapAssets function, subject to a timelock.
+     * @dev Can only be called by the owner. The fee change can be applied after FEE_CHANGE_DELAY.
+     * AUDIT FINDING (Fee Change Front-Running - Medium Risk): Implemented timelock mechanism.
+     * @param newProposedFee The proposed new fee amount in Wei.
      */
-    function setWrapperFee(uint256 newFee) external onlyOwner { // SLITHER FIX: Parameter name updated
+    function proposeWrapperFee(uint256 newProposedFee) external onlyOwner {
+        pendingWrapperFee = newProposedFee;
+        feeChangeReadyTimestamp = block.timestamp + FEE_CHANGE_DELAY;
+        emit WrapperFeeChangeProposed(newProposedFee, feeChangeReadyTimestamp);
+    }
+
+    /**
+     * @notice Applies the pending wrapper fee change after the timelock delay has passed.
+     * @dev Can be called by anyone after the delay.
+     */
+    function applyWrapperFee() external {
+        if (feeChangeReadyTimestamp == 0) revert NoFeeChangePending();
+        if (block.timestamp < feeChangeReadyTimestamp) revert FeeChangeNotReady();
+
         uint256 oldFee = wrapperFee;
-        wrapperFee = newFee; // SLITHER FIX: Use updated parameter name
-        emit WrapperFeeUpdated(oldFee, newFee); // SLITHER FIX: Use updated parameter name
+        uint256 newFee = pendingWrapperFee;
+        wrapperFee = newFee;
+        // Reset timelock state
+        pendingWrapperFee = 0;
+        feeChangeReadyTimestamp = 0;
+
+        emit WrapperFeeChangeApplied(oldFee, newFee);
+        // Also emit standard update event for consistency
+        emit WrapperFeeUpdated(oldFee, newFee);
     }
 
     /**
      * @notice Sets the base URI for generating token URIs.
      * @dev Can only be called by the owner. Base URI should likely end with '/'.
      * Example: "https://myapi.com/metadata/"
-     * @param newBaseURI The new base URI string. SLITHER FIX: Parameter name updated (was _newBaseURI).
+     * @param newBaseURI The new base URI string.
      */
-    function setBaseTokenURI(string memory newBaseURI) external onlyOwner { // SLITHER FIX: Parameter name updated
-        if (bytes(newBaseURI).length == 0) revert ZeroBaseURI(); // SLITHER FIX: Use updated parameter name
+    function setBaseTokenURI(string memory newBaseURI) external onlyOwner {
+        if (bytes(newBaseURI).length == 0) revert ZeroBaseURI();
         string memory oldBaseURI = baseTokenURI;
-        baseTokenURI = newBaseURI; // SLITHER FIX: Use updated parameter name
-        emit BaseTokenURISet(oldBaseURI, newBaseURI); // SLITHER FIX: Use updated parameter name
+        baseTokenURI = newBaseURI;
+        emit BaseTokenURISet(oldBaseURI, newBaseURI);
     }
 
     /**
      * @notice Withdraws accumulated fees from the contract to the owner's address.
-     * @dev Uses low-level call, which is standard for ETH transfer.
-     * SLITHER NOTE (dangerous-strict-equality): `balance == 0` check is intentional and safe here.
-     * SLITHER NOTE (low-level-calls): `call` is the standard method for sending Ether.
+     * @dev Uses low-level call, standard for ETH transfer. Checks for call success.
      */
     function withdrawFees() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
-        // Intentionally check for exact zero
         if (balance == 0) revert NoFeesToWithdraw();
 
         // Standard method to send Ether
@@ -241,11 +274,12 @@ contract AssetWrapperNFT is ERC721, Ownable, ReentrancyGuard {
         override // ERC721
         returns (string memory)
     {
-        _requireOwned(tokenId);
+        _requireOwned(tokenId); // Check if token exists and is valid
         string memory base = baseTokenURI;
         if (bytes(base).length == 0) {
-            return "";
+            return ""; // Return empty string if no base URI is set
         }
+        // Append tokenId to base URI
         return string(abi.encodePacked(base, tokenId.toString()));
     }
 
