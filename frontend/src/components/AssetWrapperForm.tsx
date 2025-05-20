@@ -80,7 +80,10 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
   const [ownedNftsFromContract, setOwnedNftsFromContract] = useState<OwnedNft[] | null>(null);
   const [isLoadingOwnedNfts, setIsLoadingOwnedNfts] = useState<boolean>(false);
   const [fetchOwnedNftsError, setFetchOwnedNftsError] = useState<string | null>(null);
-  const [selectedNftFromList, setSelectedNftFromList] = useState<OwnedNft | null>(null); 
+
+  // Yeni state'ler ERC1155 miktar girişi için
+  const [nftForAmountEntry, setNftForAmountEntry] = useState<OwnedNft | null>(null);
+  const [amountPromptValue, setAmountPromptValue] = useState<string>('1');
 
   const {
     wrapNFTs,
@@ -148,7 +151,6 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
     }
     if (name === 'contractAddress') {
       setOwnedNftsFromContract(null);
-      setSelectedNftFromList(null);
       setFetchOwnedNftsError(null);
       setAssetInput(prev => ({ ...prev, tokenId: '' })); 
     }
@@ -172,8 +174,6 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
     setIsLoadingOwnedNfts(true);
     setFetchOwnedNftsError(null);
     setOwnedNftsFromContract(null);
-    setSelectedNftFromList(null);
-    setAssetInput(prev => ({ ...prev, tokenId: '' }));
 
     try {
       const nfts = await alchemy.nft.getNftsForOwner(connectedAddress, {
@@ -193,102 +193,135 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
     }
   };
 
-  const handleNftSelection = (selectedNft: OwnedNft) => {
-    setSelectedNftFromList(selectedNft);
-
-    let newAssetType: DisplayAssetType;
-    const alchemyTokenType = selectedNft.tokenType?.toUpperCase(); 
+  const handleNftSelection = (clickedNft: OwnedNft) => {
+    let determinedAssetType: DisplayAssetType;
+    const alchemyTokenType = clickedNft.tokenType?.toUpperCase();
 
     if (alchemyTokenType === 'ERC721') {
-      newAssetType = DisplayAssetType.ERC721;
+      determinedAssetType = DisplayAssetType.ERC721;
     } else if (alchemyTokenType === 'ERC1155') {
-      newAssetType = DisplayAssetType.ERC1155;
+      determinedAssetType = DisplayAssetType.ERC1155;
     } else {
-      console.warn(`Desteklenmeyen NFT tipi seçildi: ${selectedNft.tokenType}. ERC721 olarak varsayılıyor.`);
-      newAssetType = DisplayAssetType.ERC721; // Desteklenmeyen veya bilinmeyen tip için varsayılan
-      // Kullanıcıya bir hata mesajı göstermeyi düşünebilirsiniz
-      // setFormError(`Seçilen NFT tipi (${selectedNft.tokenType}) şu anda desteklenmiyor.`);
+      setFormMessage(`Desteklenmeyen token tipi: ${clickedNft.tokenType}.`);
+      return;
     }
 
+    // assetInput'u bilgilendirme amaçlı güncelle (kontrat, token ID)
     setAssetInput(prev => ({
       ...prev,
-      contractAddress: selectedNft.contract.address,
-      tokenId: selectedNft.tokenId,
-      assetType: newAssetType,
-      amount: '1', // NFT'ler için miktar genellikle 1'dir.
+      contractAddress: clickedNft.contract.address,
+      tokenId: clickedNft.tokenId,
+      assetType: determinedAssetType, 
+      amount: '1', // ERC721 için 1, ERC1155 için bu alan artık doğrudan kullanılmayacak
     }));
     setFetchOwnedNftsError(null);
+    setFormMessage(''); // Önceki mesajları temizle
+
+    if (determinedAssetType === DisplayAssetType.ERC721) {
+      // ERC721 ise doğrudan ekle/kontrol et
+      const existingAssetIndex = assetsToWrap.findIndex(
+        asset =>
+          asset.contractAddress.toLowerCase() === clickedNft.contract.address.toLowerCase() &&
+          asset.tokenId === BigInt(clickedNft.tokenId)
+      );
+      if (existingAssetIndex !== -1) {
+        setFormMessage(`Bu ERC721 NFT (Token ID: ${clickedNft.tokenId}) zaten paketleme listesinde.`);
+      } else {
+        const newAssetToAdd: AssetInList = {
+          id: `${clickedNft.contract.address}-${clickedNft.tokenId}`,
+          contractAddress: clickedNft.contract.address as Address,
+          assetType: DisplayAssetType.ERC721,
+          tokenId: BigInt(clickedNft.tokenId),
+          amount: BigInt(1),
+        };
+        setAssetsToWrap(prevAssets => [...prevAssets, newAssetToAdd]);
+        setFormMessage(`ERC721 NFT (Token ID: ${clickedNft.tokenId}) listeye eklendi.`);
+      }
+      setNftForAmountEntry(null); // ERC721 seçildiğinde miktar sorma bölümünü gizle
+    } else if (determinedAssetType === DisplayAssetType.ERC1155) {
+      // ERC1155 ise, miktar sorma bölümünü göster
+      setNftForAmountEntry(clickedNft);
+      const existingAsset = assetsToWrap.find(
+        asset =>
+          asset.contractAddress.toLowerCase() === clickedNft.contract.address.toLowerCase() &&
+          asset.tokenId === BigInt(clickedNft.tokenId)
+      );
+      setAmountPromptValue(existingAsset ? existingAsset.amount.toString() : '1');
+    }
   };
 
-  const handleAddAssetToList = () => {
-    let contractAddressToAdd: Address;
-    let assetTypeToAdd: DisplayAssetType;
-    let tokenIdToAddString: string;
-    let amountToAddString: string;
+  const handleAddErc1155ToListWithAmount = () => {
+    if (!nftForAmountEntry) return;
 
-    if (selectedNftFromList) {
-      contractAddressToAdd = selectedNftFromList.contract.address as Address;
-      assetTypeToAdd = selectedNftFromList.tokenType === 'ERC1155' ? DisplayAssetType.ERC1155 : DisplayAssetType.ERC721;
-      tokenIdToAddString = selectedNftFromList.tokenId;
-      amountToAddString = assetInput.amount; 
+    const clickedNft = nftForAmountEntry;
+    let desiredAmountBigInt = BigInt(1);
+
+    const parsedAmount = parseInt(amountPromptValue, 10);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setFormMessage("ERC1155 için girdiğiniz miktar geçersiz. Miktar 1 olarak ayarlandı.");
+      desiredAmountBigInt = BigInt(1);
+      setAmountPromptValue('1'); // Input'u da düzelt
     } else {
-      if (!assetInput.tokenId) {
-        setFormMessage('Lütfen listeden bir NFT seçin veya Token ID girin.');
+      desiredAmountBigInt = BigInt(parsedAmount);
+    }
+
+    const ownedBalance = BigInt(clickedNft.balance || '0');
+    if (ownedBalance <= 0 && desiredAmountBigInt > 0) { // Eğer bakiyesi 0 ama eklemeye çalışıyorsa
+      setFormMessage(`Bu ERC1155 token (ID: ${clickedNft.tokenId}) için bakiyeniz 0. Eklenemez.`);
+      setNftForAmountEntry(null); // Miktar sormayı kapat
+      return;
+    }
+    if (desiredAmountBigInt > ownedBalance) {
+      setFormMessage(`Girdiğiniz miktar (${desiredAmountBigInt}) sahip olduğunuzdan (${ownedBalance}) fazla. Miktar otomatik olarak ${ownedBalance} yapıldı.`);
+      desiredAmountBigInt = ownedBalance;
+      setAmountPromptValue(ownedBalance.toString()); // Input'u da düzelt
+    }
+    
+    if (desiredAmountBigInt <= 0 && ownedBalance > 0) { // Eğer geçerli bakiye varken 0 veya negatif girmeye çalışırsa
+        setFormMessage("Miktar 0'dan büyük olmalıdır. Eklenmedi.");
+        // setNftForAmountEntry(null); // İsteğe bağlı: Miktar sormayı kapat veya kullanıcıya düzeltme şansı ver
         return;
+    }
+     if (desiredAmountBigInt <= 0 && ownedBalance <= 0) { // Zaten bakiyesi yokken ve 0 girmeye çalışırsa
+        setFormMessage(`Bu ERC1155 token (ID: ${clickedNft.tokenId}) için bakiyeniz 0. Eklenemez.`);
+        setNftForAmountEntry(null);
+        return;
+    }
+
+    const existingAssetIndex = assetsToWrap.findIndex(
+      asset =>
+        asset.contractAddress.toLowerCase() === clickedNft.contract.address.toLowerCase() &&
+        asset.tokenId === BigInt(clickedNft.tokenId)
+    );
+
+    if (existingAssetIndex !== -1) {
+      // Varlık zaten listede, miktarını güncelle
+      const updatedAssets = [...assetsToWrap];
+      if (updatedAssets[existingAssetIndex].amount === desiredAmountBigInt) {
+        setFormMessage(`ERC1155 (Token ID: ${clickedNft.tokenId}) zaten listede ve miktar aynı (${desiredAmountBigInt}). Değişiklik yapılmadı.`);
+      } else {
+        updatedAssets[existingAssetIndex].amount = desiredAmountBigInt;
+        setAssetsToWrap(updatedAssets);
+        setFormMessage(`Listedeki ERC1155 (Token ID: ${clickedNft.tokenId}) miktarı güncellendi: ${desiredAmountBigInt}.`);
       }
-      contractAddressToAdd = assetInput.contractAddress as Address;
-      assetTypeToAdd = assetInput.assetType;
-      tokenIdToAddString = assetInput.tokenId;
-      amountToAddString = assetInput.amount;
+    } else {
+      // Varlık listede değil, yeni ekle
+      const newAssetToAdd: AssetInList = {
+        id: `${clickedNft.contract.address}-${clickedNft.tokenId}`,
+        contractAddress: clickedNft.contract.address as Address,
+        assetType: DisplayAssetType.ERC1155,
+        tokenId: BigInt(clickedNft.tokenId),
+        amount: desiredAmountBigInt,
+      };
+      setAssetsToWrap(prevAssets => [...prevAssets, newAssetToAdd]);
+      setFormMessage(`ERC1155 NFT (Token ID: ${clickedNft.tokenId}) listeye eklendi (Miktar: ${desiredAmountBigInt}).`);
     }
+    setNftForAmountEntry(null); // Miktar sorma bölümünü kapat
+  };
 
-    if (!isAddress(contractAddressToAdd)) {
-      setFormMessage('Geçerli bir kontrat adresi girilmedi.');
-      return;
-    }
-    if (!tokenIdToAddString) {
-      setFormMessage('Token ID girilmedi.');
-      return;
-    }
-
-    const tokenIdBigInt = BigInt(tokenIdToAddString);
-    const amountBigInt = BigInt(amountToAddString);
-
-    if (assetTypeToAdd === DisplayAssetType.ERC721 && amountBigInt !== 1n) {
-      setFormMessage('ERC721 varlıkları için miktar 1 olmalıdır.');
-      return;
-    }
-    if (amountBigInt <= 0n) {
-        setFormMessage('Miktar 0 dan büyük olmalıdır.');
-        return;
-    }
-
-    if (selectedNftFromList && selectedNftFromList.tokenType === 'ERC1155') {
-        const ownedBalance = BigInt(selectedNftFromList.balance || '0');
-        if (amountBigInt > ownedBalance) {
-            setFormMessage(`Girdiğiniz miktar (${amountToAddString}), sahip olduğunuz bakiyeden (${selectedNftFromList.balance}) fazla olamaz.`);
-            return;
-        }
-    }
-
-    setAssetsToWrap(prev => [
-      ...prev,
-      {
-        id: `${contractAddressToAdd}-${tokenIdBigInt}-${Math.random()}`,
-        contractAddress: contractAddressToAdd,
-        assetType: assetTypeToAdd,
-        tokenId: tokenIdBigInt,
-        amount: amountBigInt,
-      },
-    ]);
-    setFormMessage('Varlık listeye eklendi.');
-    setSelectedNftFromList(null);
-    setAssetInput(prev => ({
-        ...prev,
-        tokenId: '',
-        // amount: '1', 
-        // contractAddress: '', 
-    }));
+  const handleCancelAmountEntry = () => {
+    setNftForAmountEntry(null);
+    setFormMessage("Miktar girişi iptal edildi.");
   };
 
   const executeActualWrap = async () => {
@@ -450,25 +483,33 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
         {ownedNftsFromContract && ownedNftsFromContract.length > 0 && (
           <div className="space-y-2">
             <label className="block text-sm font-medium text-purple-200 mb-1">Sahip Olduğunuz NFTler (Kontrat: ...{assetInput.contractAddress.slice(-6)})</label>
-            <div className="max-h-60 overflow-y-auto bg-gray-700/50 p-2 rounded-md border border-gray-600 scrollbar-thin scrollbar-thumb-purple-700 scrollbar-track-gray-700/50">
+            <div className="max-h-60 overflow-y-auto bg-gray-700/50 p-2 rounded-md border border-gray-600 scrollbar-thin scrollbar-thumb-purple-700 scrollbar-track-gray-700/50 pr-2">
               {ownedNftsFromContract.map(nft => (
                 <div 
                   key={`${nft.contract.address}-${nft.tokenId}`}
                   onClick={() => handleNftSelection(nft)}
-                  className={`p-3 mb-2 rounded-md cursor-pointer transition-all hover:bg-purple-700/70 ${selectedNftFromList?.tokenId === nft.tokenId && selectedNftFromList?.contract.address === nft.contract.address ? 'bg-purple-600 ring-2 ring-purple-400' : 'bg-gray-600/80'}`}
+                  className={`p-3 mb-2 rounded-md cursor-pointer transition-all hover:bg-purple-700/70 ${nft.tokenId === assetInput.tokenId && nft.contract.address === assetInput.contractAddress ? 'bg-purple-600 ring-2 ring-purple-400' : 'bg-gray-600/80'}`}
                 >
                   <div className="flex items-center space-x-3">
                     {nft.image?.thumbnailUrl ? (
-                      <img src={nft.image.thumbnailUrl} alt={nft.name || 'NFT Resmi'} className="w-12 h-12 rounded object-cover" />
-                    ) : nft.image?.cachedUrl ? (
-                      <img src={nft.image.cachedUrl} alt={nft.name || 'NFT Resmi'} className="w-12 h-12 rounded object-cover" />
+                      <img src={nft.image.thumbnailUrl} alt={nft.name || 'NFT image'} className="w-12 h-12 rounded-md object-cover" />
                     ) : (
-                      <div className="w-12 h-12 rounded bg-gray-500 flex items-center justify-center text-gray-300 text-xs">Resim Yok</div>
+                      <div className="w-12 h-12 rounded-md bg-gray-700 flex items-center justify-center text-gray-400 text-xs flex-shrink-0">
+                        Resim Yok
+                      </div>
                     )}
-                    <div>
-                      <p className="font-semibold text-purple-200 truncate max-w-xs">{nft.name || 'İsimsiz NFT'}</p>
-                      <p className="text-xs text-gray-400">Token ID: <span className="font-mono">{nft.tokenId}</span></p>
-                      {nft.tokenType === 'ERC1155' && nft.balance && <p className="text-xs text-gray-400">Bakiye: {nft.balance}</p>}
+                    <div className="flex-grow min-w-0">
+                      <p className="font-semibold truncate text-white" title={nft.name || nft.contract.name || 'İsimsiz NFT'}>
+                        {nft.name || nft.contract.name || 'İsimsiz NFT'}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate" title={nft.tokenId}>
+                        Token ID: {nft.tokenId}
+                      </p>
+                      {nft.tokenType === 'ERC1155' && nft.balance && (
+                        <p className="text-xs text-purple-300">
+                          Sahip olunan: {nft.balance}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -477,55 +518,40 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
           </div>
         )}
         
-        {selectedNftFromList && (
-            <div>
-                <label htmlFor="tokenIdDisplay" className="block text-sm font-medium text-purple-200 mb-1">Seçilen Token ID</label>
+        {/* ERC1155 için Miktar Sorma Bölümü */} 
+        {nftForAmountEntry && nftForAmountEntry.tokenType === 'ERC1155' && (
+          <div className="mt-4 p-4 border border-purple-700 rounded-lg bg-gray-700/30">
+            <h4 className="text-md font-semibold text-purple-200 mb-2">
+              '{nftForAmountEntry.name || 'İsimsiz NFT'}' (ID: {nftForAmountEntry.tokenId}) için Miktar Girin
+            </h4>
+            <p className="text-xs text-gray-400 mb-1">Sahip olunan: {nftForAmountEntry.balance || '0'}</p>
+            <div className='flex items-center space-x-2'>
                 <input
-                    type="text"
-                    name="tokenIdDisplay"
-                    id="tokenIdDisplay"
-                    value={assetInput.tokenId} 
-                    readOnly
-                    className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md shadow-sm text-gray-300 cursor-not-allowed"
+                type="number"
+                value={amountPromptValue}
+                onChange={(e) => setAmountPromptValue(e.target.value)}
+                placeholder="Miktar"
+                min="1"
+                className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md shadow-sm focus:border-purple-500 focus:ring-purple-500 text-white"
                 />
+                <button
+                type="button"
+                onClick={handleAddErc1155ToListWithAmount}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-md transition-colors whitespace-nowrap"
+                >
+                Ekle/Güncelle
+                </button>
+                <button
+                type="button"
+                onClick={handleCancelAmountEntry}
+                className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-md transition-colors whitespace-nowrap"
+                >
+                İptal
+                </button>
             </div>
-        )}
-
-        {selectedNftFromList && (
-          <div className="mb-4">
-            <p className="text-sm text-purple-300">
-              Varlık Tipi: <span className="font-semibold text-white">{DisplayAssetType[assetInput.assetType]} (Otomatik Belirlendi)</span>
-            </p>
+            {/* Miktar alanı için anlık hata mesajları da buraya eklenebilir */} 
           </div>
         )}
-
-        {assetInput.assetType === DisplayAssetType.ERC1155 && (
-          <div>
-            <label htmlFor="amount" className="block text-sm font-medium text-purple-200 mb-1">
-              Miktar {selectedNftFromList && selectedNftFromList.tokenType === 'ERC1155' ? `(Sahip olunan: ${selectedNftFromList.balance || '0'})` : ''}
-            </label>
-            <input
-              type="number"
-              name="amount"
-              id="amount"
-              value={assetInput.amount}
-              onChange={handleAssetInputChange}
-              min="1"
-              placeholder="1"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm text-gray-100 focus:ring-purple-500 focus:border-purple-500"
-              required
-            />
-          </div>
-        )}
-
-        <button 
-          type="button" 
-          onClick={handleAddAssetToList}
-          disabled={!selectedNftFromList && !assetInput.tokenId} 
-          className="w-full px-4 py-2 border border-purple-500 text-purple-300 hover:bg-purple-700/30 font-semibold rounded-md disabled:opacity-50 transition-colors"
-        >
-          Varlığı Listeye Ekle
-        </button>
 
         {assetsToWrap.length > 0 && (
           <div className="mt-6 pt-4 border-t border-gray-700">
