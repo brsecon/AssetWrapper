@@ -26,6 +26,8 @@ interface AssetInList {
   assetType: DisplayAssetType;
   tokenId: bigint;
   amount: bigint;
+  name?: string;
+  imageUrl?: string;
 }
 
 interface AssetWrapperFormProps {
@@ -233,6 +235,8 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
           assetType: DisplayAssetType.ERC721,
           tokenId: BigInt(clickedNft.tokenId),
           amount: BigInt(1),
+          name: clickedNft.name || clickedNft.contract.name || `Token ID: ${clickedNft.tokenId}`,
+          imageUrl: clickedNft.image?.thumbnailUrl || clickedNft.image?.cachedUrl || clickedNft.image?.originalUrl,
         };
         setAssetsToWrap(prevAssets => [...prevAssets, newAssetToAdd]);
         setFormMessage(`ERC721 NFT (Token ID: ${clickedNft.tokenId}) listeye eklendi.`);
@@ -312,6 +316,8 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
         assetType: DisplayAssetType.ERC1155,
         tokenId: BigInt(clickedNft.tokenId),
         amount: desiredAmountBigInt,
+        name: clickedNft.name || clickedNft.contract.name || `Token ID: ${clickedNft.tokenId}`,
+        imageUrl: clickedNft.image?.thumbnailUrl || clickedNft.image?.cachedUrl || clickedNft.image?.originalUrl,
       };
       setAssetsToWrap(prevAssets => [...prevAssets, newAssetToAdd]);
       setFormMessage(`ERC1155 NFT (Token ID: ${clickedNft.tokenId}) listeye eklendi (Miktar: ${desiredAmountBigInt}).`);
@@ -558,16 +564,40 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
             <h3 className="text-lg font-semibold text-purple-200 mb-3">Paketlenecek Varlıklar:</h3>
             <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-purple-700 scrollbar-track-gray-700/50 pr-2">
               {assetsToWrap.map(asset => (
-                <div key={asset.id} className="bg-gray-700/70 p-3 rounded-md flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-gray-200 truncate max-w-xs">Kontrat: <span className="font-mono text-xs">{asset.contractAddress}</span></p>
-                    <p className="text-sm text-gray-300">Token ID: <span className="font-mono">{asset.tokenId.toString()}</span></p>
-                    <p className="text-sm text-gray-400">Tip: {asset.assetType === DisplayAssetType.ERC721 ? 'ERC721' : 'ERC1155'}, Miktar: {asset.amount.toString()}</p>
+                <div key={asset.id} className="flex items-center justify-between bg-gray-700/60 p-3 rounded-md shadow hover:bg-gray-700/80 transition-colors">
+                  <div className="flex items-center space-x-3 flex-grow min-w-0">
+                    {asset.imageUrl ? (
+                      <img 
+                        src={asset.imageUrl} 
+                        alt={asset.name || 'NFT image'} 
+                        className="w-12 h-12 rounded-md object-cover flex-shrink-0 border border-gray-600"
+                        onError={(e) => (e.currentTarget.style.display = 'none')} // Hide if image fails to load
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-md bg-gray-600 flex items-center justify-center text-gray-400 text-xs flex-shrink-0 border border-gray-500">
+                        Resim Yok
+                      </div>
+                    )}
+                    <div className="flex-grow min-w-0">
+                      <p className="font-semibold text-white truncate" title={asset.name || `Token ID: ${asset.tokenId.toString()}`}>
+                        {asset.name || `Token ID: ${asset.tokenId.toString()}`}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Token ID: <span className="font-mono">{asset.tokenId.toString()}</span>
+                      </p>
+                      {asset.assetType === DisplayAssetType.ERC1155 && (
+                        <p className="text-xs text-gray-500">
+                          Miktar: {asset.amount.toString()}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 truncate" title={asset.contractAddress}>
+                        Kontrat: ...{asset.contractAddress.slice(-6)}
+                      </p>
+                    </div>
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={() => setAssetsToWrap(prev => prev.filter(a => a.id !== asset.id))}
-                    className="text-red-400 hover:text-red-300 text-xs"
+                  <button
+                    onClick={() => handleRemoveAssetFromList(asset.id)}
+                    className="ml-4 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md transition-colors flex-shrink-0"
                   >
                     Kaldır
                   </button>
@@ -580,7 +610,7 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
         <button 
           type="submit" 
           disabled={assetsToWrap.length === 0 || isCheckingApproval || isSendingApprovalTx || isWrapping || isConfirmingApproval || isConfirmingWrap}
-          className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow-md disabled:opacity-60 transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
+          className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow-md disabled:opacity-60 transition-colors duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
         >
           {isCheckingApproval ? 'Onaylar Kontrol Ediliyor...' : 
            isSendingApprovalTx ? 'Onay Bekleniyor...' : 
