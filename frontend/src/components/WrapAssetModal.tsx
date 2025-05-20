@@ -15,18 +15,28 @@ export default function WrapAssetModal({
   isOpen,
   onClose,
   onWrapSuccess,
-  fetchNfts, // Parametre olarak eklendi
+  fetchNfts,
 }: WrapAssetModalProps) {
 
   const handleWrapSuccess = () => {
-    onWrapSuccess(); // Üst bileşene haber ver (belki fetchNfts burada çağrılabilir)
-    // fetchNfts(); // Alternatif olarak doğrudan burada da çağrılabilir
-    onClose(); // Modalı kapat
+    onWrapSuccess(); 
+    onClose(); // Close modal on successful wrap
   };
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={onClose} static>
+      <Dialog
+        as="div"
+        className="relative z-50"
+        static // Keep static to indicate manual close management
+        onClose={() => {
+          // With static, Headless UI should not call this for backdrop clicks.
+          // It will call this for the ESC key.
+          // To prevent ESC from closing, we do nothing here.
+          // If you want ESC to close, call `onClose()` here.
+          console.log('WrapAssetModal Dialog onClose triggered (e.g., by ESC key). Modal will not close unless explicitly told.');
+        }}
+      >
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-300"
@@ -50,11 +60,28 @@ export default function WrapAssetModal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-gray-800 text-left align-middle shadow-xl transition-all">
-                {/* AssetWrapperForm'u burada kullanıyoruz */}
+              <Dialog.Panel className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-gray-800 p-6 text-left align-middle shadow-xl transition-all relative">
+                <Dialog.Title
+                  as="h3"
+                  className="text-xl font-semibold leading-6 text-purple-200 mb-6"
+                >
+                  Yeni Varlık Paketi Oluştur
+                </Dialog.Title>
+                
+                <button
+                  type="button"
+                  onClick={onClose} // Call the original onClose from ProfilePage
+                  className="absolute top-5 right-5 text-gray-400 hover:text-gray-200 p-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  aria-label="Kapat"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+
                 <AssetWrapperForm 
                   onWrapSuccess={handleWrapSuccess} 
-                  onCloseModal={onClose} 
+                  onCloseModal={onClose} // Pass the original onClose for the form to use if needed
                 />
               </Dialog.Panel>
             </Transition.Child>
