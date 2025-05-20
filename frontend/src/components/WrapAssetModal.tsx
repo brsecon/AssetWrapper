@@ -8,16 +8,19 @@ interface WrapAssetModalProps {
   isOpen: boolean;
   onClose: () => void;
   onWrapSuccess: () => void; // Profil sayfasındaki listeyi yenilemek için
+  fetchNfts: () => Promise<void>; // fetchNfts prop'u eklendi
 }
 
 export default function WrapAssetModal({
   isOpen,
   onClose,
   onWrapSuccess,
+  fetchNfts, // Parametre olarak eklendi
 }: WrapAssetModalProps) {
 
   const handleWrapSuccess = () => {
-    onWrapSuccess(); // Üst bileşene haber ver
+    onWrapSuccess(); // Üst bileşene haber ver (belki fetchNfts burada çağrılabilir)
+    // fetchNfts(); // Alternatif olarak doğrudan burada da çağrılabilir
     onClose(); // Modalı kapat
   };
 

@@ -181,7 +181,15 @@ const AssetWrapperForm = ({ onWrapSuccess, onCloseModal }: AssetWrapperFormProps
         });
       }
     } catch (err: any) {
-      console.error('Paketleme hatası (executeActualWrap):', err);
+      console.error('Paketleme hatası (executeActualWrap) (güvenli log):', {
+        message: err?.message,
+        name: err?.name,
+        cause: err?.cause,
+        // Wagmi/Viem hatalarında sıkça bulunan diğer alanlar:
+        // shortMessage: err?.shortMessage,
+        // code: err?.code,
+        // metaMessages: err?.metaMessages,
+      });
       setFormMessage(`Paketleme başlatılırken hata: ${err.shortMessage || err.message}`);
     }
   };

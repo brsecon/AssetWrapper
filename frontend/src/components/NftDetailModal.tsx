@@ -1,14 +1,15 @@
 'use client';
 
 import { Nft } from 'alchemy-sdk';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import assetWrapperAbiFile from '../contracts/abis/AssetWrapper.json'; 
+import { Dialog, Transition } from '@headlessui/react';
+import { ASSET_WRAPPER_CONTRACT_ADDRESS } from '@/config/contracts';
+import assetWrapperAbi from '@/contracts/abis/AssetWrapper.json'; 
 
 // ABI'nın gerçekten bir dizi olduğundan emin olalım
-const assetWrapperAbi = assetWrapperAbiFile.abi;
-
-const ASSET_WRAPPER_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ASSET_WRAPPER_CONTRACT_ADDRESS as `0x${string}` | undefined;
+// const assetWrapperAbi = Array.isArray(assetWrapperAbiFile) ? assetWrapperAbiFile : assetWrapperAbiFile.abi || [];
+// Yukarıdaki satıra gerek kalmadı, direkt import ediyoruz.
 
 export interface ContractAsset {
   contractAddress: string;
@@ -26,6 +27,7 @@ interface NftDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUnwrapSuccess: () => void; 
+  fetchNfts: () => Promise<void>; 
 }
 
 const getAssetTypeName = (typeNumber: number): string => {
@@ -40,7 +42,12 @@ const getAssetTypeName = (typeNumber: number): string => {
 // Hata mesajlarını formatlamak için yardımcı fonksiyon
 function formatErrorMessage(error: any, baseMessage: string): string {
   // Geliştirme sırasında ham hatayı logla (daha sonra kaldırılabilir)
-  console.log('formatErrorMessage içinde ham hata:', JSON.stringify(error, Object.getOwnPropertyNames(error || {}), 2));
+  console.log('formatErrorMessage içinde ham hata (güvenli log):', {
+    message: error?.message,
+    name: error?.name,
+    cause: error?.cause,
+    // Diğer bilinen güvenli alanlar eklenebilir
+  });
 
   const userRejectedMessage = "User rejected the request.";
   const userDeniedSignatureMessage = "User denied transaction signature.";
@@ -104,9 +111,9 @@ export default function NftDetailModal({
   onClose, 
   lockedAssets, 
   isLoadingLockedAssets, 
-  onUnwrapSuccess
+  onUnwrapSuccess,
+  fetchNfts
 }: NftDetailModalProps) {
-
   const { data: unwrapTxHash, writeContract, isPending: isSubmittingUnwrap, error: submitUnwrapError } = useWriteContract();
   const { isLoading: isConfirmingUnwrap, isSuccess: isUnwrapConfirmed, error: confirmUnwrapError } = 
     useWaitForTransactionReceipt({ hash: unwrapTxHash });
@@ -136,206 +143,187 @@ export default function NftDetailModal({
   }, [isUnwrapConfirmed]);
 
   const handleUnwrap = async () => {
-    if (!ASSET_WRAPPER_CONTRACT_ADDRESS) {
-      setUnwrapError("Asset Wrapper kontrat adresi bulunamadı.");
+    if (!nft || !ASSET_WRAPPER_CONTRACT_ADDRESS) {
+      setUnwrapError("Paket açma işlemi için gerekli bilgiler eksik.");
       return;
     }
-    if (!nft || !nft.tokenId) {
-      setUnwrapError("NFT veya Token ID bulunamadı.");
-      return;
-    }
-    setUnwrapError(null); 
-
+    setUnwrapError(null); // Önceki hataları temizle
     try {
-      writeContract({
+      await writeContract({
         address: ASSET_WRAPPER_CONTRACT_ADDRESS,
-        abi: assetWrapperAbi,
+        abi: assetWrapperAbi.abi,
         functionName: 'unwrap',
         args: [BigInt(nft.tokenId)],
       });
-    } catch (e: any) {
-      setUnwrapError(formatErrorMessage(e, "Paket açma işlemi sırasında beklenmedik bir hata oluştu"));
-      console.error("Unwrap çağrısında beklenmedik hata:", e);
+    } catch (e) {
+      // Bu blok genellikle writeContract'tan direkt bir hata gelirse (örneğin, kullanıcı reddederse ve bu useWriteContract tarafından yakalanmazsa) çalışır.
+      // submitUnwrapError hook'u zaten çoğu hatayı yakalayacaktır.
+      setUnwrapError(formatErrorMessage(e, "Paket açma işlemi gönderilemedi"));
+      console.error("handleUnwrap içinde writeContract hatası:", e);
     }
   };
 
-  const getOpenSeaLink = (contractAddress: string, tokenId: string) => {
-    return `https://opensea.io/assets/base/${contractAddress}/${tokenId}`;
-  };
+  if (!isOpen || !nft) return null;
 
-  const getUnderlyingAssetExplorerLink = (asset: ContractAsset) => {
-    if ((asset.assetType === 1 || asset.assetType === 2) && asset.tokenId) {
-        return `https://opensea.io/assets/base/${asset.contractAddress}/${String(asset.tokenId)}`;
-    }
-    if (asset.assetType === 0) {
-        return `https://basescan.org/token/${asset.contractAddress}`;
-    }
-    return `https://basescan.org/address/${asset.contractAddress}`;
-  };
-
-  const isUnwrapping = isSubmittingUnwrap || isConfirmingUnwrap;
-
-  if (!isOpen || !nft) { 
-    return null;
-  }
+  const mainNftImageUrl = nft.image?.cachedUrl || nft.image?.originalUrl || nft.image?.thumbnailUrl;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4">
-      <div className="bg-gray-800 text-white rounded-lg shadow-2xl w-full max-w-2xl lg:max-w-3xl max-h-[90vh] overflow-y-auto p-6 relative transform transition-all duration-300 ease-in-out scale-100">
-        <button 
-          onClick={onClose} 
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-200 transition-colors text-2xl z-10"
-          aria-label="Kapat"
-          disabled={isUnwrapping} 
+    <Transition appear show={isOpen} as={Fragment}>
+      <Dialog 
+        as="div" 
+        className="relative z-50" 
+        static
+        onClose={() => {
+          // Bu fonksiyon, static={true} olsa bile dış tıklama veya Esc tuşuna basıldığında Headless UI tarafından çağrılır.
+          // Eğer modalın bu tür olaylarda kapanmasını istemiyorsak, burada props.onClose() çağrısını yapmamalıyız.
+          // "X" butonu zaten doğrudan props.onClose() çağrısını yapıyor.
+          // Sadece bir işlem devam ediyorsa (unwrap gibi) Esc tuşunun modalı kapatmasını engellemek için bir kontrol kalabilir.
+          if (isSubmittingUnwrap || isConfirmingUnwrap) {
+            return; // İşlem devam ediyorsa hiçbir şey yapma (Esc tuşunu engelle).
+          }
+          // static={true} olduğunda, dış tıklama veya Esc için burada başka bir işlem yapmaya gerek yok.
+          // props.onClose() çağrılmadığı için modal kapanmayacaktır.
+        }}
+      >
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
         >
-          &times;
-        </button>
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
+        </Transition.Child>
 
-        <h2 className="text-2xl md:text-3xl font-bold mb-4 text-purple-400 truncate" title={nft.name || `NFT #${nft.tokenId}`}>{nft.name || `NFT #${nft.tokenId}`}</h2>
-        
-        <div className="w-full h-72 md:h-96 bg-gray-700 rounded-md overflow-hidden mb-6 flex items-center justify-center">
-          {nft.image?.cachedUrl || nft.image?.originalUrl ? (
-            <img 
-              src={nft.image?.cachedUrl || nft.image?.originalUrl!} 
-              alt={nft.name || `NFT ${nft.tokenId}`} 
-              className="w-full h-full object-contain" 
-              onError={(e) => { 
-                const target = e.target as HTMLImageElement;
-                target.src = 'https://via.placeholder.com/400x400?text=Resim+Bulunamadı'; 
-                target.alt = 'Resim Yüklenemedi';
-              }}
-            />
-          ) : (
-            <span className="text-gray-400 text-lg">Wrapper Resmi Yok</span>
-          )}
-        </div>
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4 text-center">
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0 scale-95"
+              enterTo="opacity-100 scale-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100 scale-100"
+              leaveTo="opacity-0 scale-95"
+            >
+              <Dialog.Panel 
+                className="w-full max-w-2xl transform overflow-hidden rounded-2xl bg-gray-800/90 backdrop-blur-md border border-purple-700/50 p-6 text-left align-middle shadow-2xl shadow-purple-500/20 transition-all relative"
+                onClick={(e) => e.stopPropagation()} // Panel içindeki tıklamaların yayılımını durdur
+              >
+                {/* Kapatma Butonu Eklendi */}
+                <button
+                  type="button"
+                  className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 text-gray-400 hover:text-purple-300 transition-colors rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-opacity-75"
+                  onClick={onClose} // Bu onClose, NftDetailModal'a prop olarak gelen fonksiyondur.
+                  aria-label="Kapat"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
 
-        {nft.description && (
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-purple-300 mb-1">Wrapper Açıklaması</h3>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{nft.description}</p>
-          </div>
-        )}
+                <Dialog.Title
+                  as="h3"
+                  className="text-2xl sm:text-3xl font-bold leading-tight text-purple-300 mb-2 truncate"
+                  title={nft.name || `Token ID: ${nft.tokenId}`}
+                >
+                  {nft.name || `Wrapped Token #${nft.tokenId}`}
+                </Dialog.Title>
+                <p className="text-sm text-gray-400 mb-6">
+                  Kontrat: <span className="font-mono text-xs">{nft.contract.address}</span> | Token ID: <span className="font-mono text-xs">{nft.tokenId}</span>
+                </p>
 
-        <div className="mb-6">
-            <h3 className="text-xl font-semibold text-purple-300 mb-3 pt-3 border-t border-gray-700">İçerdiği Varlıklar</h3>
-            {isLoadingLockedAssets && <p className="text-gray-400">İçerik detayları yükleniyor...</p>}
-            {!isLoadingLockedAssets && (!lockedAssets || lockedAssets.length === 0) && (
-                <p className="text-gray-400">Bu wrapper içinde kilitli varlık bulunamadı veya yüklenemedi.</p>
-            )}
-            {lockedAssets && lockedAssets.length > 0 && (
-                <div className="space-y-4 max-h-72 overflow-y-auto pr-2">
-                {lockedAssets.map((asset, index) => (
-                    <div key={index} className="bg-gray-700 p-3 rounded-lg shadow-md flex items-start space-x-3">
-                        {asset.imageUrl && (asset.assetType === 1 || asset.assetType === 2) && (
-                            <div className="w-16 h-16 bg-gray-600 rounded-md overflow-hidden flex-shrink-0">
-                                <img 
-                                    src={asset.imageUrl} 
-                                    alt={asset.name || 'Varlık Resmi'} 
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => { 
-                                        const target = e.target as HTMLImageElement;
-                                        target.style.display = 'none'; 
-                                        const parent = target.parentNode as HTMLElement;
-                                        if(parent) {
-                                            const placeholder = document.createElement('div');
-                                            placeholder.className = 'w-full h-full flex items-center justify-center text-gray-400 text-xs text-center bg-gray-600';
-                                            placeholder.innerText = 'Resim Yok';
-                                            parent.appendChild(placeholder);
-                                        }
-                                    }}
-                                />
-                            </div>
-                        )}
-                        {(asset.assetType === 0 || (!asset.imageUrl && (asset.assetType === 1 || asset.assetType === 2))) && (
-                             <div className="w-16 h-16 bg-gray-600 rounded-md flex-shrink-0 flex items-center justify-center text-gray-400 text-xs p-1 text-center">
-                                {asset.assetType === 0 ? getAssetTypeName(asset.assetType) : 'Resim Yok'}
-                            </div>
-                        )}
-                        <div className="flex-grow min-w-0">
-                            <div className="flex justify-between items-center mb-1">
-                                <p className="text-md font-semibold text-purple-200 truncate" title={asset.name || getAssetTypeName(asset.assetType)}>
-                                    {asset.name || getAssetTypeName(asset.assetType)}
-                                </p>
-                                <a 
-                                    href={getUnderlyingAssetExplorerLink(asset)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded-md transition-colors flex-shrink-0 ml-2"
-                                >
-                                    İncele
-                                </a>
-                            </div>
-                            <p className="text-xs text-gray-400 break-all">Kontrat: <span className='font-mono text-gray-300'>{asset.contractAddress}</span></p>
-                            {(asset.assetType === 1 || asset.assetType === 2) && asset.tokenId !== undefined && 
-                                <p className="text-xs text-gray-400">Token ID: <span className='font-mono text-gray-300'>{String(asset.tokenId)}</span></p>}
-                            {(asset.assetType === 0 || asset.assetType === 2) && asset.amount !== undefined && 
-                                <p className="text-xs text-gray-400">Miktar: <span className='font-mono text-gray-300'>{String(asset.amount)}</span></p>}
-                        </div>
+                {mainNftImageUrl ? (
+                  <div className="mb-6 rounded-lg overflow-hidden border border-gray-700 shadow-lg aspect-square max-h-[400px] mx-auto">
+                    <img 
+                        src={mainNftImageUrl} 
+                        alt={nft.name || `NFT ${nft.tokenId}`} 
+                        className="w-full h-full object-contain"
+                        onError={(e) => { 
+                            const target = e.target as HTMLImageElement;
+                            target.src = 'https://via.placeholder.com/400x400?text=Görsel+Yüklenemedi';
+                            target.alt = 'Görsel Yüklenemedi'; 
+                        }}
+                    />
+                  </div>
+                ) : (
+                  <div className="mb-6 rounded-lg border border-dashed border-gray-600 bg-gray-700/50 aspect-square max-h-[400px] mx-auto flex items-center justify-center">
+                    <p className="text-gray-500">Ana NFT Görseli Yok</p>
+                  </div>
+                )}
+
+                <div className="mb-6">
+                  <h4 className="text-xl font-semibold text-purple-400 mb-3">Paket İçeriği:</h4>
+                  {isLoadingLockedAssets ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="w-8 h-8 border-t-2 border-purple-400 border-solid rounded-full animate-spin"></div>
+                      <p className="ml-3 text-gray-300">İçerik yükleniyor...</p>
                     </div>
-                ))}
+                  ) : lockedAssets && lockedAssets.length > 0 ? (
+                    <div 
+                      className="space-y-3 max-h-60 overflow-y-auto pr-2 rounded-md scrollbar-thin scrollbar-thumb-purple-700 scrollbar-track-gray-700/50"
+                    >
+                      {lockedAssets.map((asset, index) => (
+                        <div key={index} className="flex items-center bg-gray-700/60 p-3 rounded-lg shadow hover:bg-gray-700 transition-colors">
+                          {asset.imageUrl ? (
+                            <img src={asset.imageUrl} alt={asset.name || `Asset ${index}`} className="w-12 h-12 rounded-md object-cover mr-4 border border-gray-600" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-md bg-gray-600 mr-4 flex items-center justify-center text-gray-400 text-xs border border-gray-500">Görsel</div>
+                          )}
+                          <div className="flex-grow">
+                            <p className="font-semibold text-purple-300 truncate" title={asset.name || `Varlık ${index}`}>{asset.name || `Varlık #${index}`}</p>
+                            <p className="text-xs text-gray-400">{getAssetTypeName(asset.assetType)}</p>
+                            {asset.assetType !== 0 && <p className="text-xs text-gray-400">Token ID: <span className="font-mono">{String(asset.tokenId)}</span></p>}
+                            {(asset.assetType === 0 || asset.assetType === 2) && <p className="text-xs text-gray-400">Miktar: {String(asset.amount)}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 py-4 text-center bg-gray-700/50 rounded-md">Bu pakette kilitli başka varlık bulunmuyor veya yüklenemedi.</p>
+                  )}
                 </div>
-            )}
-        </div>
 
-        {unwrapError && (
-          <div className="mt-4 p-3 bg-red-900/50 border border-red-700 rounded-md text-center">
-            <p className="text-sm text-red-300 font-semibold">Hata:</p>
-            <p className="text-xs text-red-400 mt-1 break-words">{unwrapError}</p>
-          </div>
-        )}
+                {unwrapError && (
+                  <div className="mb-4 p-3 bg-red-900/50 border border-red-700 text-red-300 rounded-md text-sm">
+                    <p className="font-semibold">Hata:</p>
+                    <p>{unwrapError}</p>
+                  </div>
+                )}
 
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-gray-700">
-          <div>
-            <h3 className="text-lg font-semibold text-purple-300 mb-1">Wrapper Token ID</h3>
-            <p className="text-sm text-gray-300 font-mono break-all">{nft.tokenId}</p>
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-purple-300 mb-1">Wrapper Kontrat Adresi</h3>
-            <p className="text-sm text-gray-300 font-mono break-all">{nft.contract.address}</p>
-          </div>
-        </div>
-
-        {nft.raw?.metadata?.attributes && Array.isArray(nft.raw.metadata.attributes) && nft.raw.metadata.attributes.length > 0 && (
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-purple-300 mb-2 pt-3 border-t border-gray-700">Wrapper Öznitelikleri</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {nft.raw.metadata.attributes.map((attr: any, index: number) => (
-                <div key={index} className="bg-gray-700 p-2 rounded-md text-center">
-                  <p className="text-xs text-purple-200 uppercase tracking-wider">{attr.trait_type || 'Öznitelik'}</p>
-                  <p className="text-sm font-semibold text-gray-100 truncate" title={String(attr.value)}>{String(attr.value)}</p>
+                <div className="mt-8 flex flex-col sm:flex-row justify-end gap-3">
+                  <button
+                    type="button"
+                    className="px-6 py-3 rounded-lg text-white font-semibold bg-gray-600 hover:bg-gray-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={onClose}
+                    disabled={isSubmittingUnwrap || isConfirmingUnwrap}
+                  >
+                    Kapat
+                  </button>
+                  {ASSET_WRAPPER_CONTRACT_ADDRESS && (
+                    <button
+                      type="button"
+                      onClick={handleUnwrap}
+                      disabled={isSubmittingUnwrap || isConfirmingUnwrap || !lockedAssets || lockedAssets.length === 0} // Kilitli varlık yoksa da disable edilebilir
+                      className="px-6 py-3 rounded-lg text-white font-bold bg-gradient-to-r from-pink-600 to-red-600 hover:from-pink-700 hover:to-red-700 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none flex items-center justify-center"
+                    >
+                      {(isSubmittingUnwrap || isConfirmingUnwrap) && (
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
+                      {isConfirmingUnwrap ? 'Onaylanıyor...' : isSubmittingUnwrap ? 'Gönderiliyor...' : 'Paketi Aç (Unwrap)'}
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
+              </Dialog.Panel>
+            </Transition.Child>
           </div>
-        )}
-        
-        <div className="mt-6 pt-4 border-t border-gray-700 flex flex-col sm:flex-row sm:justify-end gap-3">
-            <button 
-                onClick={handleUnwrap}
-                disabled={isUnwrapping || !ASSET_WRAPPER_CONTRACT_ADDRESS}
-                className="w-full sm:w-auto text-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-                {isUnwrapping ? 'Paket Açılıyor...' : 'Paketi Aç'}
-            </button>
-            <a 
-                href={getOpenSeaLink(nft.contract.address, nft.tokenId)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto text-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-sm"
-            >
-                Wrapper'ı OpenSea'de Görüntüle
-            </a>
-            <button 
-                onClick={onClose} 
-                disabled={isUnwrapping} 
-                className="w-full sm:w-auto px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white font-semibold rounded-lg transition-colors text-sm disabled:opacity-50"
-            >
-                Kapat
-            </button>
         </div>
-
-      </div>
-    </div>
+      </Dialog>
+    </Transition>
   );
 }
